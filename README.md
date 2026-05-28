@@ -1,6 +1,6 @@
 # ObservaLog
 
-**A structured log contract system for distributed Go microservices.**
+**A structured log contract system for distributed microservices.**
 
 ObservaLog enforces *what* every log must contain, *how* it travels on the wire, and *what* your AI triage engine does when something fails — all three as first-class, versioned contracts.
 
