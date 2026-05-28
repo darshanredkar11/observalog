@@ -1,6 +1,8 @@
 pub mod finding;
 pub mod grammar;
 pub mod go;
+pub mod java;
+pub mod node;
 pub mod scanner;
 
 pub use finding::Finding;

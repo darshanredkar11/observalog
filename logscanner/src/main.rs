@@ -4,7 +4,7 @@ use std::process;
 
 #[derive(Parser, Debug)]
 #[command(name = "logscanner")]
-#[command(about = "Static analyzer for observalog logging compliance in Go services")]
+#[command(about = "Static analyzer for observalog logging compliance in Go, Java, and Node.js/TypeScript services")]
 struct Args {
     /// Files to scan (for CI mode)
     #[arg(long)]
