@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ObservaLog — Structured Log Contracts for Distributed Systems</title>
+  <meta name="description" content="ObservaLog enforces what every log must contain, how it travels on the wire, and what your AI triage engine does when something fails — across Go, Java, and Node.js." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    :root {
+      --bg: #070710;
+      --bg1: #0d0d1a;
+      --bg2: #12121f;
+      --bg3: #1a1a2e;
+      --border: rgba(99, 102, 241, 0.18);
+      --border2: rgba(255,255,255,0.07);
+      --text: #e2e2f0;
+      --text2: #9090b0;
+      --text3: #5a5a7a;
+      --accent: #6366f1;
+      --accent2: #818cf8;
+      --purple: #a78bfa;
+      --green: #34d399;
+      --orange: #fb923c;
+      --red: #f87171;
+      --yellow: #fbbf24;
+      --glow: rgba(99,102,241,0.3);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    code, pre, .mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+
+    /* ─── NAV ─────────────────────────────────────────────────────── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem; height: 60px;
+      background: rgba(7,7,16,0.8);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border2);
+    }
+    .nav-logo {
+      font-size: 1.1rem; font-weight: 700; letter-spacing: -0.02em;
+      background: linear-gradient(135deg, var(--accent2), var(--purple));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      text-decoration: none;
+    }
+    .nav-links { display: flex; gap: 2rem; list-style: none; }
+    .nav-links a {
+      color: var(--text2); text-decoration: none; font-size: 0.875rem;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text); }
+    .nav-cta {
+      background: var(--accent); color: #fff; text-decoration: none;
+      padding: 0.4rem 1rem; border-radius: 6px; font-size: 0.875rem;
+      font-weight: 500; transition: background 0.2s;
+    }
+    .nav-cta:hover { background: var(--accent2); }
+
+    /* ─── HERO ────────────────────────────────────────────────────── */
+    .hero {
+      min-height: 100vh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 6rem 2rem 4rem;
+      position: relative; overflow: hidden;
+      text-align: center;
+    }
+    .hero-bg {
+      position: absolute; inset: 0; z-index: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% -10%, rgba(99,102,241,0.22) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 40% at 80% 80%, rgba(167,139,250,0.1) 0%, transparent 60%);
+    }
+    .grid-pattern {
+      position: absolute; inset: 0; z-index: 0; opacity: 0.18;
+      background-image:
+        linear-gradient(rgba(99,102,241,0.3) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99,102,241,0.3) 1px, transparent 1px);
+      background-size: 60px 60px;
+      mask-image: radial-gradient(ellipse 80% 80% at 50% 0%, black 20%, transparent 100%);
+    }
+    .hero-content { position: relative; z-index: 1; max-width: 860px; }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      background: rgba(99,102,241,0.12); border: 1px solid var(--border);
+      border-radius: 100px; padding: 0.3rem 0.9rem;
+      font-size: 0.8rem; color: var(--accent2); margin-bottom: 1.5rem;
+    }
+    .hero-badge-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--green); box-shadow: 0 0 6px var(--green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    h1 {
+      font-size: clamp(2.6rem, 6vw, 5rem);
+      font-weight: 700; letter-spacing: -0.04em; line-height: 1.1;
+      margin-bottom: 1.25rem;
+    }
+    .h1-gradient {
+      background: linear-gradient(135deg, #fff 30%, var(--accent2) 70%, var(--purple) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero-sub {
+      font-size: 1.2rem; color: var(--text2); max-width: 640px;
+      margin: 0 auto 2.5rem; line-height: 1.7;
+    }
+    .hero-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-bottom: 3.5rem; }
+    .btn-primary {
+      background: var(--accent); color: #fff; text-decoration: none;
+      padding: 0.75rem 1.75rem; border-radius: 8px; font-weight: 600;
+      font-size: 0.95rem; transition: all 0.2s;
+      box-shadow: 0 0 24px rgba(99,102,241,0.4);
+    }
+    .btn-primary:hover { background: var(--accent2); box-shadow: 0 0 32px rgba(99,102,241,0.6); }
+    .btn-secondary {
+      background: transparent; color: var(--text2); text-decoration: none;
+      padding: 0.75rem 1.75rem; border-radius: 8px; font-weight: 500;
+      font-size: 0.95rem; border: 1px solid var(--border);
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--text); }
+
+    .wire-demo {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 1.25rem 1.5rem;
+      max-width: 700px; margin: 0 auto;
+      text-align: left; font-size: 0.82rem;
+      box-shadow: 0 0 40px rgba(99,102,241,0.1), 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .wire-demo-label {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text3); margin-bottom: 0.75rem;
+    }
+    .wire-part-a { color: var(--accent2); }
+    .wire-part-b { color: var(--green); }
+    .wire-sep { color: var(--text3); font-size: 0.75rem; margin: 0.4rem 0; }
+
+    /* ─── SECTIONS ────────────────────────────────────────────────── */
+    section { padding: 5rem 2rem; }
+    .container { max-width: 1100px; margin: 0 auto; }
+    .section-label {
+      font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--accent2); font-weight: 600; margin-bottom: 0.75rem;
+    }
+    h2 {
+      font-size: clamp(1.8rem, 3.5vw, 2.6rem);
+      font-weight: 700; letter-spacing: -0.03em; line-height: 1.2;
+      margin-bottom: 1rem;
+    }
+    .section-sub {
+      color: var(--text2); font-size: 1.05rem; max-width: 580px;
+      line-height: 1.7; margin-bottom: 3rem;
+    }
+
+    /* ─── PROBLEM ─────────────────────────────────────────────────── */
+    #problem { background: var(--bg1); }
+    .problem-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.25rem; margin-top: 2.5rem;
+    }
+    .problem-card {
+      background: var(--bg2); border: 1px solid var(--border2);
+      border-radius: 12px; padding: 1.5rem;
+      transition: border-color 0.2s;
+    }
+    .problem-card:hover { border-color: var(--border); }
+    .problem-icon { font-size: 1.5rem; margin-bottom: 0.75rem; }
+    .problem-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .problem-card p { font-size: 0.875rem; color: var(--text2); line-height: 1.6; }
+
+    /* ─── ARCHITECTURE ────────────────────────────────────────────── */
+    #architecture { background: var(--bg); }
+    .arch-flow {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 0;
+      margin: 2.5rem 0; justify-content: center;
+    }
+    .arch-node {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1rem 1.25rem; text-align: center;
+      min-width: 130px;
+    }
+    .arch-node-icon { font-size: 1.4rem; margin-bottom: 0.35rem; }
+    .arch-node-label { font-size: 0.75rem; font-weight: 600; color: var(--text); }
+    .arch-node-sub { font-size: 0.65rem; color: var(--text3); margin-top: 0.15rem; }
+    .arch-arrow {
+      display: flex; align-items: center; color: var(--text3);
+      font-size: 1.2rem; padding: 0 0.25rem;
+    }
+    .arch-arrow svg { width: 28px; }
+    .arch-node.highlight { border-color: var(--accent); background: rgba(99,102,241,0.08); }
+    .arch-node.highlight .arch-node-label { color: var(--accent2); }
+
+    .arch-split { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; max-width: 700px; }
+    .arch-table-card {
+      background: var(--bg2); border: 1px solid var(--border2);
+      border-radius: 10px; padding: 1rem 1.25rem;
+    }
+    .arch-table-card h4 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.4rem; }
+    .arch-table-card p { font-size: 0.78rem; color: var(--text2); }
+    .tag {
+      display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px;
+      font-size: 0.7rem; font-weight: 600; margin-top: 0.5rem;
+    }
+    .tag-hot { background: rgba(251,146,60,0.15); color: var(--orange); }
+    .tag-cold { background: rgba(99,102,241,0.12); color: var(--accent2); }
+
+    /* ─── LANGUAGES ───────────────────────────────────────────────── */
+    #libraries { background: var(--bg1); }
+    .lang-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .lang-tab {
+      padding: 0.5rem 1.25rem; border-radius: 6px; border: 1px solid var(--border2);
+      background: transparent; color: var(--text2); cursor: pointer; font-size: 0.875rem;
+      font-weight: 500; font-family: inherit; transition: all 0.15s;
+    }
+    .lang-tab:hover { border-color: var(--border); color: var(--text); }
+    .lang-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .lang-panel { display: none; }
+    .lang-panel.active { display: block; }
+    .lang-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+    .code-card {
+      background: var(--bg); border: 1px solid var(--border2); border-radius: 10px;
+      overflow: hidden;
+    }
+    .code-card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.6rem 1rem; border-bottom: 1px solid var(--border2);
+      font-size: 0.75rem; color: var(--text3);
+    }
+    .code-card-header .dots { display: flex; gap: 5px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .code-card pre { margin: 0 !important; border-radius: 0 !important; }
+    .code-card pre code { font-size: 0.8rem !important; line-height: 1.6 !important; }
+
+    /* ─── WIRE FORMAT ─────────────────────────────────────────────── */
+    #wire { background: var(--bg); }
+    .wire-visual {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 14px; padding: 2rem; margin: 2rem 0;
+    }
+    .wire-line { margin-bottom: 2rem; }
+    .wire-line:last-child { margin-bottom: 0; }
+    .wire-line-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+    .wire-badge {
+      padding: 0.2rem 0.7rem; border-radius: 5px; font-size: 0.7rem;
+      font-weight: 700; letter-spacing: 0.05em;
+    }
+    .badge-a { background: rgba(99,102,241,0.2); color: var(--accent2); }
+    .badge-b { background: rgba(52,211,153,0.15); color: var(--green); }
+    .wire-line-desc { font-size: 0.8rem; color: var(--text2); }
+    .wire-bytes {
+      display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 0.75rem;
+    }
+    .byte-block {
+      border-radius: 4px; padding: 0.25rem 0.4rem;
+      font-size: 0.68rem; font-weight: 500;
+      border: 1px solid transparent; cursor: default;
+      position: relative; transition: all 0.15s;
+    }
+    .byte-block:hover .byte-tooltip { opacity: 1; transform: translateY(-4px); }
+    .byte-sep { color: var(--text3); background: var(--bg3); border-color: var(--border2); }
+    .byte-schema { color: #f9a8d4; background: rgba(249,168,212,0.1); border-color: rgba(249,168,212,0.2); }
+    .byte-trace { color: var(--accent2); background: rgba(99,102,241,0.12); border-color: var(--border); }
+    .byte-span { color: #7dd3fc; background: rgba(125,211,252,0.1); border-color: rgba(125,211,252,0.2); }
+    .byte-parent { color: var(--purple); background: rgba(167,139,250,0.1); border-color: rgba(167,139,250,0.2); }
+    .byte-seq { color: var(--yellow); background: rgba(251,191,36,0.1); border-color: rgba(251,191,36,0.2); }
+    .byte-svc { color: var(--orange); background: rgba(251,146,60,0.1); border-color: rgba(251,146,60,0.2); }
+    .byte-lvl { color: var(--red); background: rgba(248,113,113,0.1); border-color: rgba(248,113,113,0.2); }
+    .byte-out { color: var(--green); background: rgba(52,211,153,0.1); border-color: rgba(52,211,153,0.2); }
+    .byte-ts { color: #e2e8f0; background: rgba(226,232,240,0.08); border-color: rgba(226,232,240,0.15); }
+    .wire-legend {
+      display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.75rem;
+    }
+    .legend-item { display: flex; align-items: center; gap: 0.35rem; font-size: 0.72rem; color: var(--text2); }
+    .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+    /* ─── TRIAGE PIPELINE ─────────────────────────────────────────── */
+    #triage { background: var(--bg1); }
+    .pipeline {
+      display: flex; flex-direction: column; gap: 0; max-width: 680px;
+    }
+    .pipe-step {
+      display: flex; gap: 1.25rem; align-items: flex-start;
+      padding-bottom: 1.75rem; position: relative;
+    }
+    .pipe-step:not(:last-child)::before {
+      content: ''; position: absolute;
+      left: 18px; top: 38px; bottom: 0;
+      width: 2px; background: linear-gradient(180deg, var(--border) 0%, transparent 100%);
+    }
+    .pipe-num {
+      flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%;
+      background: var(--bg2); border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.8rem; font-weight: 700; color: var(--accent2);
+    }
+    .pipe-body h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.3rem; }
+    .pipe-body p { font-size: 0.83rem; color: var(--text2); line-height: 1.6; }
+    .pipe-tag { display: inline-block; margin-top: 0.4rem; }
+
+    /* ─── METRICS ─────────────────────────────────────────────────── */
+    #metrics { background: var(--bg); }
+    .metrics-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.25rem;
+    }
+    .metric-card {
+      background: var(--bg2); border: 1px solid var(--border2);
+      border-radius: 12px; padding: 1.5rem; text-align: center;
+    }
+    .metric-value {
+      font-size: 2.4rem; font-weight: 700; letter-spacing: -0.04em;
+      background: linear-gradient(135deg, var(--text) 30%, var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      line-height: 1;
+    }
+    .metric-label { font-size: 0.8rem; color: var(--text2); margin-top: 0.4rem; }
+
+    /* ─── GET STARTED ─────────────────────────────────────────────── */
+    #start { background: var(--bg1); }
+    .install-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.25rem; margin-top: 2rem;
+    }
+    .install-card {
+      background: var(--bg); border: 1px solid var(--border2);
+      border-radius: 12px; overflow: hidden;
+    }
+    .install-header {
+      display: flex; align-items: center; gap: 0.75rem;
+      padding: 1rem 1.25rem; border-bottom: 1px solid var(--border2);
+    }
+    .lang-icon { font-size: 1.2rem; }
+    .install-header h3 { font-size: 0.95rem; font-weight: 600; }
+    .install-cmd {
+      padding: 1rem 1.25rem; background: var(--bg2);
+      font-size: 0.82rem; color: var(--green);
+      border-bottom: 1px solid var(--border2);
+    }
+    .install-note { padding: 0.75rem 1.25rem; font-size: 0.78rem; color: var(--text2); }
+
+    /* ─── CTA ─────────────────────────────────────────────────────── */
+    #cta {
+      background: var(--bg);
+      padding: 6rem 2rem;
+      text-align: center;
+      position: relative; overflow: hidden;
+    }
+    .cta-glow {
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse 60% 80% at 50% 50%, rgba(99,102,241,0.12) 0%, transparent 70%);
+    }
+    #cta .container { position: relative; z-index: 1; }
+    #cta h2 { margin-bottom: 1rem; }
+    #cta p { color: var(--text2); font-size: 1.05rem; margin-bottom: 2.5rem; }
+
+    /* ─── FOOTER ──────────────────────────────────────────────────── */
+    footer {
+      background: var(--bg1); border-top: 1px solid var(--border2);
+      padding: 2rem; text-align: center;
+      font-size: 0.82rem; color: var(--text3);
+    }
+    footer a { color: var(--text2); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+
+    /* ─── HIGHLIGHT OVERRIDES ─────────────────────────────────────── */
+    pre code.hljs { padding: 1.25rem 1.5rem !important; border-radius: 0 !important; }
+    .hljs { background: #0d0d1a !important; }
+
+    /* ─── RESPONSIVE ──────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .lang-grid { grid-template-columns: 1fr; }
+      .arch-flow { gap: 0.5rem; }
+      .arch-split { grid-template-columns: 1fr; }
+    }
+
+    /* ─── SCROLL ANIMATIONS ───────────────────────────────────────── */
+    .fade-up {
+      opacity: 0; transform: translateY(24px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .fade-up.visible { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body>
+
+<!-- ─── NAV ──────────────────────────────────────────────────────────── -->
+<nav>
+  <a href="#" class="nav-logo">ObservaLog</a>
+  <ul class="nav-links">
+    <li><a href="#architecture">How It Works</a></li>
+    <li><a href="#libraries">Libraries</a></li>
+    <li><a href="#wire">Wire Format</a></li>
+    <li><a href="#triage">AI Triage</a></li>
+    <li><a href="https://github.com/darshanredkar11/observalog">Docs</a></li>
+  </ul>
+  <a href="https://github.com/darshanredkar11/observalog" class="nav-cta" target="_blank">GitHub →</a>
+</nav>
+
+<!-- ─── HERO ──────────────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="grid-pattern"></div>
+  <div class="hero-content">
+    <div class="hero-badge">
+      <span class="hero-badge-dot"></span>
+      Go · Java · Node.js · One wire contract
+    </div>
+    <h1>
+      <span class="h1-gradient">Log contracts<br>for distributed systems</span>
+    </h1>
+    <p class="hero-sub">
+      ObservaLog enforces what every log must contain, how it travels on the wire, and what your AI triage engine does when something fails — across every service language, at every layer.
+    </p>
+    <div class="hero-actions">
+      <a href="#start" class="btn-primary">Get started</a>
+      <a href="https://github.com/darshanredkar11/observalog" class="btn-secondary" target="_blank">View on GitHub</a>
+    </div>
+    <div class="wire-demo fade-up">
+      <div class="wire-demo-label">Live wire format — two lines per log call, every language</div>
+      <div class="wire-part-a mono">A:1|trc_7f2a1b9e4d|spn_004|spn_001|04|2|1|1|1748268153812</div>
+      <div class="wire-sep">↓ abbreviated JSON payload</div>
+      <div class="wire-part-b mono">{"e":"provider.send.rejected","m":"Provider rejected send","er":{"ek":"RateLimitExceeded","ec":"PROVIDER_QUOTA","rt":true},"o":"failure","ms":87}</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── PROBLEM ───────────────────────────────────────────────────────── -->
+<section id="problem">
+  <div class="container">
+    <div class="section-label">The problem</div>
+    <h2>Distributed systems fail silently</h2>
+    <p class="section-sub">A JWT expires in your Go auth service, cascades through your Java doc service, triggers a retry loop in Node.js — and by the time you investigate, you're staring at 40,000 lines of free-form text across three tabs.</p>
+    <div class="problem-grid">
+      <div class="problem-card fade-up">
+        <div class="problem-icon">🔍</div>
+        <h3>No shared structure</h3>
+        <p>Go logs with zap, Java logs with SLF4J, Node with Winston — three formats, zero cross-service query capability, and no contract any of them has to honour.</p>
+      </div>
+      <div class="problem-card fade-up">
+        <div class="problem-icon">🕳️</div>
+        <h3>Silent message drops</h3>
+        <p>You can't tell the difference between "nothing happened" and "logs were dropped between the service and Kafka." A sequence counter changes that.</p>
+      </div>
+      <div class="problem-card fade-up">
+        <div class="problem-icon">🤖</div>
+        <h3>LLM triage is expensive</h3>
+        <p>Sending the same recurring RateLimitExceeded error to your LLM a thousand times a day costs money and time. Fingerprint dedup eliminates ~95% of those calls.</p>
+      </div>
+      <div class="problem-card fade-up">
+        <div class="problem-icon">🚨</div>
+        <h3>Errors as strings</h3>
+        <p>A log with <code>error: "connection refused"</code> tells a machine nothing about retryability, error kind, or root cause. Typed <code>Err</code> structs enforce machine-readable failures at the API level.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── ARCHITECTURE ──────────────────────────────────────────────────── -->
+<section id="architecture">
+  <div class="container">
+    <div class="section-label">Architecture</div>
+    <h2>Five components. One contract.</h2>
+    <p class="section-sub">Every service emits the same two-line NDJSON. Fluent Bit compresses and forwards. The brain stores, classifies, and triages — all from typed columns, no full-text search.</p>
+
+    <div class="arch-flow fade-up">
+      <div class="arch-node">
+        <div class="arch-node-icon">🟦</div>
+        <div class="arch-node-label">Go / Java / Node.js</div>
+        <div class="arch-node-sub">emit to stdout</div>
+      </div>
+      <div class="arch-arrow">
+        <svg viewBox="0 0 28 12" fill="none"><path d="M0 6h24M18 1l6 5-6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="arch-node">
+        <div class="arch-node-icon">🔁</div>
+        <div class="arch-node-label">Fluent Bit</div>
+        <div class="arch-node-sub">GZIP → Kafka</div>
+      </div>
+      <div class="arch-arrow">
+        <svg viewBox="0 0 28 12" fill="none"><path d="M0 6h24M18 1l6 5-6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="arch-node">
+        <div class="arch-node-icon">📨</div>
+        <div class="arch-node-label">Kafka</div>
+        <div class="arch-node-sub">6 partitions</div>
+      </div>
+      <div class="arch-arrow">
+        <svg viewBox="0 0 28 12" fill="none"><path d="M0 6h24M18 1l6 5-6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="arch-node highlight">
+        <div class="arch-node-icon">🧠</div>
+        <div class="arch-node-label">observalog-brain</div>
+        <div class="arch-node-sub">parse · store · triage</div>
+      </div>
+      <div class="arch-arrow">
+        <svg viewBox="0 0 28 12" fill="none"><path d="M0 6h24M18 1l6 5-6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="arch-node">
+        <div class="arch-node-icon">📡</div>
+        <div class="arch-node-label">WebSocket</div>
+        <div class="arch-node-sub">ws://brain:4000/ws</div>
+      </div>
+    </div>
+
+    <div class="arch-split fade-up">
+      <div class="arch-table-card">
+        <h4>log_index</h4>
+        <p>Typed columns. ~60 bytes per row. All queries run here: trace reconstruction, gap detection, failure classification.</p>
+        <span class="tag tag-hot">Hot path</span>
+      </div>
+      <div class="arch-table-card">
+        <h4>log_payload</h4>
+        <p>Full JSONB + VECTOR(384). Fetched only for rows flagged interesting by log_index. 78% I/O reduction for triage operations.</p>
+        <span class="tag tag-cold">Cold path</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── LIBRARIES ─────────────────────────────────────────────────────── -->
+<section id="libraries">
+  <div class="container">
+    <div class="section-label">Libraries</div>
+    <h2>Same contract. Every language.</h2>
+    <p class="section-sub">Three libraries, one wire format. Install in your Go, Java, or Node.js service and emit structured logs with zero boilerplate.</p>
+
+    <div class="lang-tabs">
+      <button class="lang-tab active" onclick="switchLang('go')">Go</button>
+      <button class="lang-tab" onclick="switchLang('java')">Java</button>
+      <button class="lang-tab" onclick="switchLang('node')">Node.js</button>
+    </div>
+
+    <!-- GO -->
+    <div id="lang-go" class="lang-panel active">
+      <div class="lang-grid">
+        <div class="code-card">
+          <div class="code-card-header">
+            <span>Install</span>
+            <div class="dots"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div></div>
+          </div>
+          <pre><code class="language-bash">go get github.com/darshanredkar11/observalog-go@latest</code></pre>
+        </div>
+        <div class="code-card">
+          <div class="code-card-header">
+            <span>main.go</span>
+            <div class="dots"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div></div>
+          </div>
+          <pre><code class="language-go">import (
+    log "github.com/darshanredkar11/observalog-go"
+    "github.com/darshanredkar11/observalog-go/middleware"
+)
+
+func main() {
+    log.Init(log.ConfigFromEnv("v1.2.3"))
+    defer log.Shutdown()
+    http.ListenAndServe(":8080",
+        middleware.Middleware(yourRouter))
+}</code></pre>
+        </div>
+        <div class="code-card">
+          <div class="code-card-header">
+            <span>Emit an error</span>
+            <div class="dots"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div></div>
+          </div>
+          <pre><code class="language-go">log.Error(ctx, "provider.send.rejected",
+    "Provider rejected document send",
+    log.F{
+        "doc_id":      docID,
+        "outcome":     log.Failure,
+        "duration_ms": time.Since(start).Milliseconds(),
+        "error": &log.Err{
+            Kind:      "RateLimitExceeded",
+            Code:      "PROVIDER_QUOTA",
+            Message:   err.Error(),
+            Retryable: true,
+        },
+    })</code></pre>
+        </div>
+        <div class="code-card">
+          <div class="code-card-header">
+            <span>Kafka consumer</span>
+            <div class="dots"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div></div>
+          </div>
+          <pre><code class="language-go">handler := middleware.KafkaConsumerMiddleware(
+    func(ctx context.Context, msg *kafka.Message) error {
+        log.Info(ctx, "doc.event.received",
+            "Processing document event",
+            log.F{"doc_id": docID})
+        return processMessage(ctx, msg)
+    })</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- JAVA -->
+    <div id="lang-java" class="lang-panel">
+      <div class="lang-grid">
+        <div class="code-card">
+          <div class="code-card-header">
+            <span>pom.xml</span>
+            <div class="dots"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div></div>
+          </div>
+          <pre><code class="language-xml">&lt;dependency&gt;
+  &lt;groupId&gt;com.observalog&lt;/groupId&gt;
+  &lt;artifactId&gt;observalog-java&lt;/artifactId&gt;
+  &lt;version&gt;1.0.0&lt;/version&gt;
+&lt;/dependency&gt;</code></pre>
+        </div>
+        <div class="code-card">
+          <div class="code-card-header">
+            <span>Spring Boot filter</span>
+            <div class="dots"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div></div>
+          </div>
+          <pre><code class="language-java">@Bean
+public FilterRegistrationBean&lt;HttpFilter&gt;
+        observalogFilter() {
+    var reg = new FilterRegistrationBean&lt;&gt;(
+        new HttpFilter());
+    reg.addUrlPatterns("/*");
+    reg.setOrder(1);
+    return reg;
+}</code></pre>
+        </div>
+        <div class="code-card">
+          <div class="code-card-header">
+            <span>Emit an error</span>
+            <div class="dots"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div></div>
+          </div>
+          <pre><code class="language-java">ObservaLog.error(
+    "provider.send.rejected",
+    "Provider rejected document send",
+    Map.of(
+        "doc_id",      docId,
+        "outcome",     Outcome.FAILURE,
+        "duration_ms", duration,
+        "error",       new Err(
+            "RateLimitExceeded",
+            "PROVIDER_QUOTA",
+            ex.getMessage(), true)
+    ));</code></pre>
+        </div>
+        <div class="code-card">
+          <div class="code-card-header">
+            <span>Kafka consumer</span>
+            <div class="dots"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div></div>
+          </div>
+          <pre><code class="language-java">// In your @KafkaListener
+KafkaConsumerMiddleware.wrap(record);
+try {
+    processRecord(record);
+} finally {
+    LogContext.clear();
+}</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- NODE -->
+    <div id="lang-node" class="lang-panel">
+      <div class="lang-grid">
+        <div class="code-card">
+          <div class="code-card-header">
+            <span>Install</span>
+            <div class="dots"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div></div>
+          </div>
+          <pre><code class="language-bash">npm install @darshanredkar11/observalog-node</code></pre>
+        </div>
+        <div class="code-card">
+          <div class="code-card-header">
+            <span>server.ts</span>
+            <div class="dots"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div></div>
+          </div>
+          <pre><code class="language-typescript">import { init, shutdown } from
+    '@darshanredkar11/observalog-node';
+import { httpMiddleware } from
+    '@darshanredkar11/observalog-node/middleware';
+
+init({ serviceCode: 2,
+       version: process.env.SERVICE_VERSION! });
+app.use(httpMiddleware());
+process.on('SIGTERM', shutdown);</code></pre>
+        </div>
+        <div class="code-card">
+          <div class="code-card-header">
+            <span>Emit an error</span>
+            <div class="dots"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div></div>
+          </div>
+          <pre><code class="language-typescript">import { error } from
+    '@darshanredkar11/observalog-node';
+
+error('provider.send.rejected',
+    'Provider rejected document send', {
+    doc_id:      docId,
+    outcome:     'failure',
+    duration_ms: Date.now() - start,
+    error: {
+        kind:      'RateLimitExceeded',
+        code:      'PROVIDER_QUOTA',
+        message:   e.message,
+        retryable: true,
+    },
+});</code></pre>
+        </div>
+        <div class="code-card">
+          <div class="code-card-header">
+            <span>Kafka consumer</span>
+            <div class="dots"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div></div>
+          </div>
+          <pre><code class="language-typescript">import { kafkaConsumerMiddleware }
+    from '@darshanredkar11/observalog-node/middleware';
+
+consumer.run({
+    eachMessage: kafkaConsumerMiddleware(
+        async ({ message }) => {
+            info('doc.event.received',
+                'Processing event', { doc_id });
+            await processMessage(message);
+        }),
+});</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── WIRE FORMAT ───────────────────────────────────────────────────── -->
+<section id="wire">
+  <div class="container">
+    <div class="section-label">Wire format</div>
+    <h2>55-byte header. Zero JSON parsing.</h2>
+    <p class="section-sub">Every language emits the same two-line NDJSON. Part A is a fixed-position header read by the brain at hard-coded byte offsets. Part B is abbreviated JSON — 18 field names compressed to 1–2 characters.</p>
+
+    <div class="wire-visual fade-up">
+      <div class="wire-line">
+        <div class="wire-line-header">
+          <span class="wire-badge badge-a">Part A</span>
+          <span class="wire-line-desc">55-byte fixed-position header — read without JSON parsing</span>
+        </div>
+        <div class="wire-bytes">
+          <span class="byte-block byte-schema">A:1</span>
+          <span class="byte-block byte-sep">|</span>
+          <span class="byte-block byte-trace">trc_7f2a1b9e4d0001</span>
+          <span class="byte-block byte-sep">|</span>
+          <span class="byte-block byte-span">spn_004</span>
+          <span class="byte-block byte-sep">|</span>
+          <span class="byte-block byte-parent">spn_001</span>
+          <span class="byte-block byte-sep">|</span>
+          <span class="byte-block byte-seq">04</span>
+          <span class="byte-block byte-sep">|</span>
+          <span class="byte-block byte-svc">2</span>
+          <span class="byte-block byte-sep">|</span>
+          <span class="byte-block byte-lvl">3</span>
+          <span class="byte-block byte-sep">|</span>
+          <span class="byte-block byte-out">2</span>
+          <span class="byte-block byte-sep">|</span>
+          <span class="byte-block byte-ts">1748268153812</span>
+        </div>
+        <div class="wire-legend">
+          <span class="legend-item"><span class="legend-dot" style="background:#f9a8d4"></span>schema_version [0]</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#818cf8"></span>trace_id [2–15]</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#7dd3fc"></span>span_id [17–23]</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#a78bfa"></span>parent_span [25–31]</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#fbbf24"></span>seq [33–34]</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#fb923c"></span>service [36]</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#f87171"></span>level [38]</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#34d399"></span>outcome [40]</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#e2e8f0"></span>ts_ms [42–54]</span>
+        </div>
+      </div>
+
+      <div class="wire-line">
+        <div class="wire-line-header">
+          <span class="wire-badge badge-b">Part B</span>
+          <span class="wire-line-desc">Abbreviated JSON — 18 field names shortened to 1–2 chars, ~70% smaller</span>
+        </div>
+        <div style="background:var(--bg3);border-radius:8px;padding:1rem;margin-bottom:0.75rem;">
+          <pre style="margin:0;overflow-x:auto;"><code class="language-json">{"e":"provider.send.rejected","m":"Provider rejected send","er":{"ek":"RateLimitExceeded","ec":"PROVIDER_QUOTA","em":"quota exceeded","rt":true},"c":{"di":"doc_abc123"},"o":"failure","ms":87,"ui":"usr_xyz","js":"checkout.payment"}</code></pre>
+        </div>
+        <div class="wire-legend">
+          <span class="legend-item">e → event</span>
+          <span class="legend-item">m → message</span>
+          <span class="legend-item">ms → duration_ms</span>
+          <span class="legend-item">er → error</span>
+          <span class="legend-item">ek → error.kind</span>
+          <span class="legend-item">ec → error.code</span>
+          <span class="legend-item">rt → error.retryable</span>
+          <span class="legend-item">c → ctx</span>
+          <span class="legend-item">o → outcome</span>
+          <span class="legend-item">ui → user_id</span>
+          <span class="legend-item">js → journey_stage</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── TRIAGE PIPELINE ───────────────────────────────────────────────── -->
+<section id="triage">
+  <div class="container">
+    <div class="section-label">AI Triage</div>
+    <h2>From failure to typed fix in milliseconds.</h2>
+    <p class="section-sub">The brain classifies, deduplicates, and routes failures to one of ten typed repair categories — with LLM calls eliminated for 95% of repeated errors.</p>
+
+    <div class="pipeline fade-up">
+      <div class="pipe-step">
+        <div class="pipe-num">1</div>
+        <div class="pipe-body">
+          <h3>Parse Part A at fixed byte offsets</h3>
+          <p>The Rust brain reads trace_id, level, outcome, and ts_ms from hard-coded positions — no JSON parsing for the 95% of operations that only need typed columns.</p>
+        </div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-num">2</div>
+        <div class="pipe-body">
+          <h3>Gap detection via sequence counter</h3>
+          <p>Per-service atomic seq counter (mod 256) lets the brain detect dropped messages. A 30-second Valkey grace window prevents false positives from out-of-order delivery.</p>
+          <span class="tag" style="background:rgba(251,191,36,0.1);color:#fbbf24;font-size:0.7rem;padding:0.15rem 0.5rem;border-radius:4px;">Gap 5 — Valkey 30s TTL</span>
+        </div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-num">3</div>
+        <div class="pipe-body">
+          <h3>Fingerprint dedup — xxHash64 in ~8ns</h3>
+          <p>xxHash64(service_byte | event | error_code | ctx_primary_key). Computed at emit time in all three languages. Cache hit returns the repair immediately — no LLM call.</p>
+          <span class="tag" style="background:rgba(52,211,153,0.1);color:#34d399;font-size:0.7rem;padding:0.15rem 0.5rem;border-radius:4px;">~95% LLM call elimination</span>
+        </div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-num">4</div>
+        <div class="pipe-body">
+          <h3>Failure classification from typed columns</h3>
+          <p>Isolated · Cascading · ExternalDependency · Timeout · GapDetected · Partial — classified entirely from log_index without touching log_payload.</p>
+        </div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-num">5</div>
+        <div class="pipe-body">
+          <h3>LLM call with constrained output</h3>
+          <p>Call graph + environment snapshot + version-pinned code context assembled and sent to the LLM. Output constrained to one of ten typed RepairIds.</p>
+        </div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-num">6</div>
+        <div class="pipe-body">
+          <h3>Typed RepairId → fix playbook</h3>
+          <p>NETWORK_RETRY · RATE_LIMIT_BACKOFF · VALIDATION_FIX · DATABASE_FIX · AUTH_REFRESH · DEPENDENCY_FALLBACK · CONFIG_FIX · RESOURCE_EXHAUSTED · CONSISTENCY_FIX · UNKNOWN</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── METRICS ───────────────────────────────────────────────────────── -->
+<section id="metrics">
+  <div class="container">
+    <div class="section-label">Performance</div>
+    <h2>Numbers that matter in production.</h2>
+    <div class="metrics-grid fade-up">
+      <div class="metric-card">
+        <div class="metric-value">200ns</div>
+        <div class="metric-label">Go emit latency (hot path)</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">8ns</div>
+        <div class="metric-label">xxHash64 fingerprint (all languages)</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">~70%</div>
+        <div class="metric-label">Wire size reduction vs plain JSON</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">0.46ms</div>
+        <div class="metric-label">TimescaleDB point lookup</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">~95%</div>
+        <div class="metric-label">LLM call elimination via dedup</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">60B</div>
+        <div class="metric-label">log_index row size</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── GET STARTED ───────────────────────────────────────────────────── -->
+<section id="start">
+  <div class="container">
+    <div class="section-label">Get started</div>
+    <h2>Up and running in two commands.</h2>
+    <p class="section-sub">Start the full stack with Docker Compose, then add the library for your language.</p>
+
+    <div class="code-card fade-up" style="max-width:600px;margin-bottom:2rem;">
+      <div class="code-card-header">
+        <span>Start infrastructure</span>
+        <div class="dots"><div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div></div>
+      </div>
+      <pre><code class="language-bash">cp .env.example .env   # add ANTHROPIC_API_KEY
+docker compose up -d   # Kafka · TimescaleDB · Valkey · Fluent Bit · brain</code></pre>
+    </div>
+
+    <div class="install-grid fade-up">
+      <div class="install-card">
+        <div class="install-header">
+          <span class="lang-icon">🟦</span>
+          <h3>Go</h3>
+        </div>
+        <div class="install-cmd">go get github.com/darshanredkar11/observalog-go@latest</div>
+        <div class="install-note">Context-based propagation. No reflection. ~200ns hot path.</div>
+      </div>
+      <div class="install-card">
+        <div class="install-header">
+          <span class="lang-icon">☕</span>
+          <h3>Java / Spring Boot</h3>
+        </div>
+        <div class="install-cmd">com.observalog:observalog-java:1.0.0</div>
+        <div class="install-note">ThreadLocal context. Servlet Filter. Published to GitHub Packages.</div>
+      </div>
+      <div class="install-card">
+        <div class="install-header">
+          <span class="lang-icon">🟩</span>
+          <h3>Node.js / TypeScript</h3>
+        </div>
+        <div class="install-cmd">npm install @darshanredkar11/observalog-node</div>
+        <div class="install-note">AsyncLocalStorage context. Express + Kafka middleware included.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── CTA ───────────────────────────────────────────────────────────── -->
+<section id="cta">
+  <div class="cta-glow"></div>
+  <div class="container">
+    <div class="section-label">Open source</div>
+    <h2>Built in the open.<br>Ready to ship.</h2>
+    <p>Full source on GitHub — five components, three language libraries, Docker Compose stack, and CI workflows out of the box.</p>
+    <div class="hero-actions">
+      <a href="https://github.com/darshanredkar11/observalog" class="btn-primary" target="_blank">View on GitHub →</a>
+      <a href="https://github.com/darshanredkar11/observalog/blob/main/docs/whitepaper.md" class="btn-secondary" target="_blank">Read the whitepaper</a>
+    </div>
+  </div>
+</section>
+
+<!-- ─── FOOTER ────────────────────────────────────────────────────────── -->
+<footer>
+  <p>
+    ObservaLog · MIT License ·
+    <a href="https://github.com/darshanredkar11/observalog" target="_blank">GitHub</a> ·
+    <a href="https://github.com/darshanredkar11/observalog/blob/main/docs/whitepaper.md" target="_blank">Whitepaper</a> ·
+    <a href="https://github.com/darshanredkar11/observalog/blob/main/docs/wire-format.md" target="_blank">Wire Format</a>
+  </p>
+</footer>
+
+<script>
+  // Syntax highlighting
+  hljs.highlightAll();
+
+  // Language tabs
+  function switchLang(lang) {
+    document.querySelectorAll('.lang-tab').forEach((t, i) => {
+      t.classList.toggle('active', ['go','java','node'][i] === lang);
+    });
+    document.querySelectorAll('.lang-panel').forEach(p => {
+      p.classList.toggle('active', p.id === 'lang-' + lang);
+    });
+  }
+
+  // Scroll-based fade-in
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        // Stagger children
+        e.target.querySelectorAll('.problem-card, .metric-card, .install-card').forEach((el, i) => {
+          setTimeout(() => el.style.cssText = 'opacity:1;transform:translateY(0);transition:opacity 0.5s ease,transform 0.5s ease', i * 80);
+        });
+      }
+    });
+  }, { threshold: 0.12 });
+
+  document.querySelectorAll('.fade-up').forEach(el => {
+    // Pre-set children opacity
+    el.querySelectorAll('.problem-card, .metric-card, .install-card').forEach(c => {
+      c.style.cssText = 'opacity:0;transform:translateY(16px)';
+    });
+    observer.observe(el);
+  });
+
+  // Hero wire demo immediate fade
+  setTimeout(() => {
+    document.querySelector('.wire-demo')?.classList.add('visible');
+  }, 400);
+</script>
+</body>
+</html>
