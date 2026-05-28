@@ -1,50 +1,50 @@
 # ObservaLog
 
-**A structured log contract system for distributed microservices.**
+**A structured log contract system for distributed microservices — in Go, Java, and Node.js.**
 
-ObservaLog enforces *what* every log must contain, *how* it travels on the wire, and *what* your AI triage engine does when something fails — all three as first-class, versioned contracts.
+ObservaLog enforces *what* every log must contain, *how* it travels on the wire, and *what* your AI triage engine does when something fails — all three as first-class, versioned contracts across every service language.
 
 ---
 
 ## The problem
 
-Distributed systems fail silently. A JWT expires in `auth-service`, triggers a cascade through `doc-service` and `provider-service`, and by the time an engineer investigates, they are staring at 40,000 lines of unstructured text across three Kibana tabs, manually correlating timestamps.
+Distributed systems fail silently. A JWT expires in `auth-service` (Go), cascades through `doc-service` (Java), and triggers a provider retry loop in `notification-service` (Node.js). By the time an engineer investigates, they are staring at 40,000 lines of unstructured text across three Kibana tabs in three different formats, manually correlating timestamps.
 
-The root cause is not a missing alert. It is missing *structure*. Logs that were never designed to be read by a machine cannot be triaged by one.
+The root cause is not a missing alert. It is missing *structure*. Logs that were never designed to be read by a machine cannot be triaged by one — regardless of the language that emitted them.
 
-ObservaLog fixes this at the source.
+ObservaLog fixes this at the source, in all three languages.
 
 ---
 
 ## How it works
 
 ```
-Go service                    Fluent Bit          Kafka          observalog-brain
-──────────────────────────    ──────────────      ──────         ─────────────────────────────
-observalog.Info(ctx, ...)  →  GZIP compress   →  topic    →     parse Part A (fixed offsets)
-observalog.Error(ctx, ...) →  forward         →           →     parse Part B (abbreviated JSON)
-                                                               ↓
-                                                         TimescaleDB
-                                                         log_index  (hot — 60 bytes/row)
-                                                         log_payload (cold — full JSONB)
-                                                               ↓
-                                                     fingerprint dedup (xxHash64)
-                                                     gap detection (seq counter)
-                                                     failure classification
-                                                     LLM triage → RepairId
-                                                     WebSocket → dashboard
+Go / Java / Node.js service       Fluent Bit         Kafka          observalog-brain
+──────────────────────────────    ──────────────     ──────         ────────────────────────────
+log.Info(ctx, "event", ...)    →  GZIP compress  →  topic    →     parse Part A (fixed offsets)
+log.Error(ctx, "event", ...)   →  forward        →           →     parse Part B (abbreviated JSON)
+                                                                          ↓
+                                                              TimescaleDB
+                                                              log_index  (hot — 60 bytes/row)
+                                                              log_payload (cold — full JSONB)
+                                                                          ↓
+                                                          fingerprint dedup (xxHash64)
+                                                          gap detection (seq counter)
+                                                          failure classification
+                                                          LLM triage → RepairId
+                                                          WebSocket → dashboard
 ```
 
-Every log emits two lines:
+Every log call, in every language, emits exactly two lines:
 
 ```
 A:1|trc_7f2a1b9e4d|spn_004|spn_001|04|2|1|1|1748268153812
 {"e":"provider.send.rejected","m":"Provider rejected document send","er":{"ek":"RateLimitExceeded","ec":"PROVIDER_QUOTA_EXCEEDED","rt":true},"c":{"di":"doc123","hs":429},"o":"failure","ms":87}
 ```
 
-**Part A** is a 55-byte fixed-position header. The Rust brain reads `trace_id`, `span_id`, `service`, `level`, `outcome`, and `ts_ms` at hard-coded byte offsets — zero JSON parsing for the fields it needs 95% of the time.
+**Part A** — 55-byte fixed-position header. The Rust brain reads `trace_id`, `span_id`, `service`, `level`, `outcome`, and `ts_ms` at hard-coded byte offsets — zero JSON parsing for the fields it needs 95% of the time.
 
-**Part B** is abbreviated JSON. `event` → `e`, `duration_ms` → `ms`, `error.kind` → `ek`. After GZIP the size difference vs. binary formats is under 10 bytes per entry.
+**Part B** — abbreviated JSON. `event` → `e`, `duration_ms` → `ms`, `error.kind` → `ek`. After GZIP the size difference vs. binary formats is under 10 bytes per entry.
 
 ---
 
@@ -52,8 +52,10 @@ A:1|trc_7f2a1b9e4d|spn_004|spn_001|04|2|1|1|1748268153812
 
 | Component | Language | Role |
 |-----------|----------|------|
-| [`observalog-go`](observalog-go/) | Go | Library imported by product services. Emits two-line NDJSON to stdout. |
-| [`logscanner`](logscanner/) | Rust | CI static analyzer. Enforces log contracts at merge time. Exit 1 = block. |
+| [`observalog-go`](observalog-go/) | Go | Library for Go services. Emits two-line NDJSON to stdout. |
+| [`observalog-java`](observalog-java/) | Java | Library for Java/Spring services. ThreadLocal context, Servlet filter. |
+| [`observalog-node`](observalog-node/) | Node.js / TypeScript | Library for Node.js services. AsyncLocalStorage context, Express middleware. |
+| [`logscanner`](logscanner/) | Rust | CI static analyser. Enforces log contracts at merge time. Exit 1 = block. |
 | [`observalog-brain`](observalog-brain/) | Rust | AI triage engine. Kafka → TimescaleDB → LLM → WebSocket. |
 
 ---
@@ -75,42 +77,50 @@ WebSocket API available at `ws://localhost:4000/ws` once the brain is healthy.
 
 ---
 
-### 1. Add the Go library
+## Library usage
+
+### Go
+
+**Install**
+
+```bash
+go get github.com/darshanredkar11/observalog-go@latest
+```
+
+**Setup**
 
 ```go
-import log "github.com/darshanredkar11/observalog-go"
+import (
+    log "github.com/darshanredkar11/observalog-go"
+    "github.com/darshanredkar11/observalog-go/middleware"
+)
 
 func main() {
     log.Init(log.ConfigFromEnv("v1.2.3-abc123def"))
     defer log.Shutdown()
+
+    // Wrap your HTTP router — injects trace_id, span_id, journey_stage automatically
+    http.ListenAndServe(":8080", middleware.Middleware(yourRouter))
 }
 ```
 
-### 2. Wrap your HTTP handler
-
-```go
-handler := middleware.Middleware(yourRouter)
-http.ListenAndServe(":8080", handler)
-```
-
-### 3. Emit logs
+**Emit logs**
 
 ```go
 // Informational
 log.Info(ctx, "doc.storage.saved", "Document written to storage", log.F{
     "doc_id":  docID,
     "bytes":   n,
-    "backend": "postgres",
 })
 
-// Decision point
+// Decision point — outcome + duration required
 log.Info(ctx, "auth.permission.checked", "Permission granted", log.F{
     "doc_id":      docID,
     "outcome":     log.Success,
     "duration_ms": time.Since(start).Milliseconds(),
 })
 
-// Failure
+// Error — structured Err, never a plain string
 log.Error(ctx, "provider.send.rejected", "Provider rejected document send", log.F{
     "doc_id":      docID,
     "outcome":     log.Failure,
@@ -124,37 +134,224 @@ log.Error(ctx, "provider.send.rejected", "Provider rejected document send", log.
 })
 ```
 
-### 4. Add logscanner to CI
+**Kafka consumer**
+
+```go
+// Kafka consumer middleware — restores trace context from message headers
+handler := middleware.KafkaConsumerMiddleware(func(ctx context.Context, msg *kafka.Message) error {
+    log.Info(ctx, "doc.event.received", "Processing document event", log.F{"doc_id": docID})
+    return processMessage(ctx, msg)
+})
+```
+
+---
+
+### Java
+
+**Install (Maven)**
+
+Add to your `pom.xml`:
+
+```xml
+<dependency>
+    <groupId>com.observalog</groupId>
+    <artifactId>observalog-java</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+Published to GitHub Packages. Add the repository:
+
+```xml
+<repositories>
+    <repository>
+        <id>github</id>
+        <url>https://maven.pkg.github.com/darshanredkar11/observalog-java</url>
+    </repository>
+</repositories>
+```
+
+Add credentials to `~/.m2/settings.xml`:
+
+```xml
+<servers>
+    <server>
+        <id>github</id>
+        <username>YOUR_GITHUB_USERNAME</username>
+        <password>YOUR_GITHUB_TOKEN</password>
+    </server>
+</servers>
+```
+
+**Install (Gradle)**
+
+```kotlin
+repositories {
+    maven {
+        url = uri("https://maven.pkg.github.com/darshanredkar11/observalog-java")
+        credentials {
+            username = project.findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
+            password = project.findProperty("gpr.key") as String? ?: System.getenv("GITHUB_TOKEN")
+        }
+    }
+}
+
+dependencies {
+    implementation("com.observalog:observalog-java:1.0.0")
+}
+```
+
+**Setup — Spring Boot**
+
+Register the servlet filter to inject `LogContext` on every HTTP request:
+
+```java
+@Bean
+public FilterRegistrationBean<HttpFilter> observalogFilter() {
+    var reg = new FilterRegistrationBean<>(new HttpFilter());
+    reg.addUrlPatterns("/*");
+    reg.setOrder(1);
+    return reg;
+}
+```
+
+**Emit logs**
+
+```java
+import com.observalog.ObservaLog;
+import com.observalog.Err;
+import com.observalog.Outcome;
+
+// Info
+ObservaLog.info("doc.storage.saved", "Document written to storage", Map.of(
+    "doc_id", docId,
+    "bytes", bytes
+));
+
+// Decision point
+ObservaLog.info("auth.permission.checked", "Permission granted", Map.of(
+    "doc_id",      docId,
+    "outcome",     Outcome.SUCCESS,
+    "duration_ms", duration
+));
+
+// Error
+ObservaLog.error("provider.send.rejected", "Provider rejected document send", Map.of(
+    "doc_id",      docId,
+    "outcome",     Outcome.FAILURE,
+    "duration_ms", duration,
+    "error",       new Err("RateLimitExceeded", "PROVIDER_QUOTA_EXCEEDED", ex.getMessage(), true)
+));
+```
+
+**Kafka consumer (Java)**
+
+```java
+// Wrap each Kafka record before processing
+KafkaConsumerMiddleware.wrap(record);
+try {
+    processRecord(record);
+} finally {
+    LogContext.clear();
+}
+```
+
+---
+
+### Node.js / TypeScript
+
+**Install**
+
+```bash
+npm install @darshanredkar11/observalog-node
+```
+
+**Setup — Express**
+
+```typescript
+import { init, shutdown } from '@darshanredkar11/observalog-node';
+import { httpMiddleware } from '@darshanredkar11/observalog-node/middleware';
+
+init({ serviceCode: 2, version: process.env.SERVICE_VERSION! });
+app.use(httpMiddleware());          // injects traceId, spanId, journeyStage per request
+process.on('SIGTERM', shutdown);
+```
+
+**Emit logs**
+
+```typescript
+import { info, warn, error } from '@darshanredkar11/observalog-node';
+import type { Err } from '@darshanredkar11/observalog-node';
+
+// Info
+info('doc.storage.saved', 'Document written to storage', {
+    doc_id: docId,
+    bytes: n,
+});
+
+// Decision point
+info('auth.permission.checked', 'Permission granted', {
+    doc_id:      docId,
+    outcome:     'success',
+    duration_ms: Date.now() - start,
+});
+
+// Error
+const err: Err = {
+    kind:      'RateLimitExceeded',
+    code:      'PROVIDER_QUOTA_EXCEEDED',
+    message:   e.message,
+    retryable: true,
+};
+error('provider.send.rejected', 'Provider rejected document send', {
+    doc_id:      docId,
+    outcome:     'failure',
+    duration_ms: Date.now() - start,
+    error:       err,
+});
+```
+
+**Kafka consumer (Node.js)**
+
+```typescript
+import { kafkaConsumerMiddleware } from '@darshanredkar11/observalog-node/middleware';
+
+consumer.run({
+    eachMessage: kafkaConsumerMiddleware(async ({ message }) => {
+        info('doc.event.received', 'Processing document event', { doc_id: docId });
+        await processMessage(message);
+    }),
+});
+```
+
+---
+
+## Add logscanner to CI
 
 ```yaml
 - name: Scan logs
   run: logscanner --files $(git diff --name-only origin/main...HEAD | grep '\.go$')
 ```
 
-### 5. Start the brain
-
-```bash
-DATABASE_URL=postgres://... KAFKA_BROKERS=localhost:9092 ANTHROPIC_API_KEY=sk-... \
-  ./observalog-brain
-```
+Exits 1 and blocks merge on any violation: missing event grammar, string errors, outcome without duration, missing trace propagation in HTTP clients.
 
 ---
 
 ## Log contract
 
-Every log call must contain:
+Every log call, in every language, must contain:
 
 | Field | Required | Source |
 |-------|----------|--------|
 | `event` | always | Developer — `domain.object.action` grammar |
 | `message` | always | Developer — past tense, min 10 chars |
 | `outcome` | decision points | Developer — `success/failure/partial/pending` |
-| `duration_ms` | when outcome present | Developer — wall clock of operation |
-| `error` | level=Error or outcome=failure | Developer — `log.Err` struct, never string |
+| `duration_ms` | when outcome present | Developer — wall clock of the operation |
+| `error` | level=Error or outcome=failure | Developer — typed `Err` struct, never a string |
 | `trace_id` | auto | Library — from context or `sys_<uuid>` |
 | `span_id` | auto | Library — generated at service entry |
-| `seq` | auto | Library — service-local atomic counter |
-| `ts` | auto | Library — RFC3339 UTC at emit time |
+| `seq` | auto | Library — request-scoped atomic counter |
+| `ts` | auto | Library — UTC at emit time |
 
 The scanner enforces these at CI time. A PR that emits `Error` with a string `"error"` field never merges.
 
@@ -178,8 +375,8 @@ Valid: `auth.jwt.validated` · `doc.document.created` · `provider.send.rejected
 
 | Metric | Value |
 |--------|-------|
-| Emit latency (hot path) | ~200ns per log call |
-| Fingerprint computation | ~8ns (xxHash64) |
+| Emit latency (hot path, Go) | ~200ns per log call |
+| Fingerprint computation | ~8ns (xxHash64, all languages) |
 | Wire size reduction | ~70% vs unabbreviated JSON (before GZIP) |
 | TimescaleDB point lookup | 0.46ms (vs 35–85ms ClickHouse) |
 | LLM call elimination | ~95% via fingerprint dedup |
@@ -194,7 +391,7 @@ See [docs/deployment-guide.md](docs/deployment-guide.md) for full infrastructure
 **Required services:**
 - Kafka (log transport, Fluent Bit → brain)
 - TimescaleDB (log storage, hypertable with 1-day chunks)
-- Valkey / Redis (gap detection grace window, 30s TTL)
+- Valkey (gap detection grace window, 30s TTL)
 - Anthropic API key (LLM triage)
 
 ---
@@ -203,7 +400,7 @@ See [docs/deployment-guide.md](docs/deployment-guide.md) for full infrastructure
 
 | Document | Description |
 |----------|-------------|
-| [docs/whitepaper.md](docs/whitepaper.md) | Architecture decisions, design rationale, gap analysis |
+| [docs/whitepaper.md](docs/whitepaper.md) | Architecture decisions, multi-language design, gap analysis |
 | [docs/wire-format.md](docs/wire-format.md) | Part A byte positions, Part B abbreviation dictionary |
 | [docs/event-grammar.md](docs/event-grammar.md) | Event naming contract and scanner rules |
 | [docs/deployment-guide.md](docs/deployment-guide.md) | Infrastructure setup and configuration |
@@ -215,6 +412,12 @@ See [docs/deployment-guide.md](docs/deployment-guide.md) for full infrastructure
 ```bash
 # Go library
 cd observalog-go && go build ./... && go test ./...
+
+# Java library
+cd observalog-java && mvn verify
+
+# Node.js library
+cd observalog-node && npm ci && npm test
 
 # Rust scanner
 cd logscanner && cargo build --release && cargo test
