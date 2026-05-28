@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	log "github.com/yourorg/observalog-go"
+	log "github.com/darshanredkar11/observalog-go"
 )
 
 func TestHttpMiddlewareTraceIdPropagation(t *testing.T) {

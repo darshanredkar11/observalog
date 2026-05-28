@@ -1,0 +1,42 @@
+name: observalog-brain
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'observalog-brain/**'
+  pull_request:
+    paths:
+      - 'observalog-brain/**'
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            observalog-brain/target
+          key: ${{ runner.os }}-brain-${{ hashFiles('observalog-brain/Cargo.lock') }}
+
+      - name: Build
+        working-directory: observalog-brain
+        run: cargo build --release
+
+      - name: Test
+        working-directory: observalog-brain
+        run: cargo test
+
+      - name: Clippy
+        working-directory: observalog-brain
+        run: cargo clippy -- -D warnings

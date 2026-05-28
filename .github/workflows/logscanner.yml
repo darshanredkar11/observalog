@@ -1,0 +1,42 @@
+name: logscanner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'logscanner/**'
+  pull_request:
+    paths:
+      - 'logscanner/**'
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            logscanner/target
+          key: ${{ runner.os }}-logscanner-${{ hashFiles('logscanner/Cargo.lock') }}
+
+      - name: Build
+        working-directory: logscanner
+        run: cargo build --release
+
+      - name: Test
+        working-directory: logscanner
+        run: cargo test
+
+      - name: Clippy
+        working-directory: logscanner
+        run: cargo clippy -- -D warnings

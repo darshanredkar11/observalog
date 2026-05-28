@@ -1,0 +1,39 @@
+name: Publish observalog-java
+
+on:
+  push:
+    tags:
+      - 'java/v*'   # e.g. java/v1.0.0
+
+jobs:
+  publish:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+          # Writes ~/.m2/settings.xml with the github server + GITHUB_TOKEN credential.
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+
+      - name: Run tests
+        working-directory: observalog-java
+        run: mvn --batch-mode verify
+
+      - name: Publish to GitHub Packages
+        working-directory: observalog-java
+        run: mvn --batch-mode deploy -DskipTests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,95 @@
+name: Contract parity
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'observalog-go/wire_contract.go'
+      - 'observalog-brain/src/ingest/wire_contract.rs'
+      - 'observalog-go/dict.go'
+      - 'observalog-brain/src/ingest/parser.rs'
+  pull_request:
+    paths:
+      - 'observalog-go/wire_contract.go'
+      - 'observalog-brain/src/ingest/wire_contract.rs'
+      - 'observalog-go/dict.go'
+      - 'observalog-brain/src/ingest/parser.rs'
+
+jobs:
+  check-offsets:
+    name: Verify byte offset parity
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract Go byte offsets
+        id: go_offsets
+        run: |
+          echo "Checking Go wire_contract.go offsets..."
+          grep -E 'Offset\s*=\s*[0-9]+' observalog-go/wire_contract.go
+
+      - name: Extract Rust byte offsets
+        id: rust_offsets
+        run: |
+          echo "Checking Rust wire_contract.rs offsets..."
+          grep -E 'OFFSET.*=.*[0-9]+' observalog-brain/src/ingest/wire_contract.rs
+
+      - name: Verify TraceID offset matches
+        run: |
+          GO_VAL=$(grep 'TraceIDOffset' observalog-go/wire_contract.go | grep -oE '[0-9]+' | head -1)
+          RS_VAL=$(grep 'TRACE_ID_OFFSET' observalog-brain/src/ingest/wire_contract.rs | grep -oE '[0-9]+' | head -1)
+          echo "Go TraceIDOffset=$GO_VAL  Rust TRACE_ID_OFFSET=$RS_VAL"
+          [ "$GO_VAL" = "$RS_VAL" ] || (echo "MISMATCH: TraceIDOffset Go=$GO_VAL Rust=$RS_VAL" && exit 1)
+
+      - name: Verify SpanID offset matches
+        run: |
+          GO_VAL=$(grep 'SpanIDOffset' observalog-go/wire_contract.go | grep -oE '[0-9]+' | head -1)
+          RS_VAL=$(grep 'SPAN_ID_OFFSET' observalog-brain/src/ingest/wire_contract.rs | grep -oE '[0-9]+' | head -1)
+          echo "Go SpanIDOffset=$GO_VAL  Rust SPAN_ID_OFFSET=$RS_VAL"
+          [ "$GO_VAL" = "$RS_VAL" ] || (echo "MISMATCH: SpanIDOffset Go=$GO_VAL Rust=$RS_VAL" && exit 1)
+
+      - name: Verify Seq offset matches
+        run: |
+          GO_VAL=$(grep 'SeqOffset' observalog-go/wire_contract.go | grep -oE '[0-9]+' | head -1)
+          RS_VAL=$(grep 'SEQ_OFFSET' observalog-brain/src/ingest/wire_contract.rs | grep -oE '[0-9]+' | head -1)
+          echo "Go SeqOffset=$GO_VAL  Rust SEQ_OFFSET=$RS_VAL"
+          [ "$GO_VAL" = "$RS_VAL" ] || (echo "MISMATCH: SeqOffset Go=$GO_VAL Rust=$RS_VAL" && exit 1)
+
+      - name: Verify TsMs offset matches
+        run: |
+          GO_VAL=$(grep 'TsMsOffset' observalog-go/wire_contract.go | grep -oE '[0-9]+' | head -1)
+          RS_VAL=$(grep 'TS_MS_OFFSET' observalog-brain/src/ingest/wire_contract.rs | grep -oE '[0-9]+' | head -1)
+          echo "Go TsMsOffset=$GO_VAL  Rust TS_MS_OFFSET=$RS_VAL"
+          [ "$GO_VAL" = "$RS_VAL" ] || (echo "MISMATCH: TsMsOffset Go=$GO_VAL Rust=$RS_VAL" && exit 1)
+
+      - name: Verify Part A byte length matches
+        run: |
+          GO_VAL=$(grep 'PartAByteLen' observalog-go/wire_contract.go | grep -oE '[0-9]+' | head -1)
+          RS_VAL=$(grep 'PART_A_BYTE_LEN' observalog-brain/src/ingest/wire_contract.rs | grep -oE '[0-9]+' | head -1)
+          echo "Go PartAByteLen=$GO_VAL  Rust PART_A_BYTE_LEN=$RS_VAL"
+          [ "$GO_VAL" = "$RS_VAL" ] || (echo "MISMATCH: PartAByteLen Go=$GO_VAL Rust=$RS_VAL" && exit 1)
+
+  check-dict:
+    name: Verify abbreviation dictionary parity
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract Go abbreviations
+        run: |
+          echo "Go KeyToAbbrev entries:"
+          grep -E '"[a-z_.]+":\s*"[a-z]+"' observalog-go/dict.go | sort
+
+      - name: Extract Rust abbreviations
+        run: |
+          echo "Rust AbbrevToKey entries:"
+          grep -E '"[a-z]+".*=>\s*"[a-z_.]+"' observalog-brain/src/ingest/parser.rs | sort
+
+      - name: Count matches
+        run: |
+          GO_COUNT=$(grep -cE '"[a-z_.]+":\s*"[a-z]+"' observalog-go/dict.go || true)
+          RS_COUNT=$(grep -cE '"[a-z]+".*=>\s*"[a-z_.]+"' observalog-brain/src/ingest/parser.rs || true)
+          echo "Go dict entries: $GO_COUNT  Rust dict entries: $RS_COUNT"
+          [ "$GO_COUNT" = "$RS_COUNT" ] || (echo "WARNING: Dict entry counts differ (Go=$GO_COUNT Rust=$RS_COUNT) — verify manually" && exit 1)

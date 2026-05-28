@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	log "github.com/yourorg/observalog-go"
+	log "github.com/darshanredkar11/observalog-go"
 )
 
 // KafkaMessage wraps a Kafka message with trace headers injected.

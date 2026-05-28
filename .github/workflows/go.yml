@@ -1,0 +1,36 @@
+name: observalog-go
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'observalog-go/**'
+  pull_request:
+    paths:
+      - 'observalog-go/**'
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: observalog-go/go.sum
+
+      - name: Build
+        working-directory: observalog-go
+        run: go build ./...
+
+      - name: Test
+        working-directory: observalog-go
+        run: go test ./...
+
+      - name: Vet
+        working-directory: observalog-go
+        run: go vet ./...

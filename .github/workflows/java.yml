@@ -1,0 +1,29 @@
+name: observalog-java
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'observalog-java/**'
+  pull_request:
+    paths:
+      - 'observalog-java/**'
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build and test
+        working-directory: observalog-java
+        run: mvn --batch-mode verify

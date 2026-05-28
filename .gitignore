@@ -18,6 +18,16 @@ go.sum
 .DS_Store
 Thumbs.db
 
+# Node.js
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Java
+*.class
+*.jar
+*.war
+
 # Secrets
 .env
 *.env

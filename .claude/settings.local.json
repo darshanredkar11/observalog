@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go mod *)",
+      "Bash(go build *)",
+      "Bash(ls -la ~/.claude/projects/ 2>/dev/null | head -20)",
+      "Bash(go test *)",
+      "Bash(cargo init *)",
+      "Bash(cargo test *)",
+      "Bash(/Users/darshanredkar/darshan/zinfinity/logscanner/target/release/logscanner --help)",
+      "Bash(cargo --version)",
+      "Bash(rustc --version)",
+      "Bash(cargo build *)",
+      "Bash(cargo tree *)",
+      "Bash(gh auth *)",
+      "Bash(git add *)",
+      "Bash(git --version)",
+      "Bash(npm install *)",
+      "Bash(npm test *)",
+      "Bash(xargs sed -i '' 's|github.com/darshanredkar11/observalog-go|github.com/darshanredkar11/observalog-go|g')"
+    ]
+  }
+}

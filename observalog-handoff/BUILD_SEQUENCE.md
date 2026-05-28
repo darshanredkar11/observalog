@@ -10,7 +10,7 @@ Do not skip ahead. Test after each file compiles.
 ### Step 1: Project scaffold
 ```bash
 mkdir observalog-go && cd observalog-go
-go mod init github.com/yourorg/observalog-go
+go mod init github.com/darshanredkar11/observalog-go
 mkdir -p middleware internal
 ```
 
