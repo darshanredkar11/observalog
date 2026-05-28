@@ -16,35 +16,47 @@ var (
 )
 
 // Middleware wraps an HTTP handler to inject trace context.
+//
+// Inbound propagation: if an upstream service (or API gateway) passes
+// X-Trace-Id / X-Parent-Span-Id headers the trace chain is continued.
+// If there are no incoming headers this is a fresh entry point and a new
+// trc_<id> is generated so that ALL log calls within this request share
+// the same trace_id (relying on ApplyGracefulDegradation would generate a
+// different sys_<uuid> for every emitLine call).
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		// Propagate or create trace_id.
+		// Continue an existing trace OR start a fresh one at the entry point.
 		traceID := r.Header.Get("X-Trace-Id")
-		if traceID != "" {
-			ctx = log.WithTraceID(ctx, traceID)
+		if traceID == "" {
+			// "trc_" (4) + 10 hex chars = 14 bytes — fits the Part A trace_id slot.
+			traceID = "trc_" + uuid.New().String()[:10]
 		}
+		ctx = log.WithTraceID(ctx, traceID)
 
-		// Generate new span_id for this service.
+		// Generate a new span_id for this service hop.
 		spanID := "spn_" + uuid.New().String()[:3]
 		ctx = log.WithSpanID(ctx, spanID)
 
-		// Propagate parent span if present.
+		// The upstream span becomes our parent_span (shows call hierarchy in the brain).
 		if parentSpan := r.Header.Get("X-Parent-Span-Id"); parentSpan != "" {
 			ctx = log.WithParentSpan(ctx, parentSpan)
 		}
 
-		// Propagate user_id.
+		// Propagate user identity across the chain.
 		if userID := r.Header.Get("X-User-Id"); userID != "" {
 			ctx = log.WithUserID(ctx, userID)
 		}
 
-		// Derive and set journey_stage.
-		journeyStage := deriveJourneyStage(r)
+		// journey_stage: prefer inherited value, fall back to auto-derive.
+		journeyStage := r.Header.Get("X-Journey-Stage")
+		if journeyStage == "" {
+			journeyStage = deriveJourneyStage(r)
+		}
 		ctx = log.WithJourneyStage(ctx, journeyStage)
 
-		// Create fresh seq counter for this request.
+		// Fresh seq counter — resets to 1 for this service hop.
 		ctx = log.WithSeq(ctx, new(atomic.Uint32))
 
 		next.ServeHTTP(w, r.WithContext(ctx))

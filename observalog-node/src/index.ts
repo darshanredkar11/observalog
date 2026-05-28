@@ -6,3 +6,10 @@ export { computeFingerprint } from './fingerprint';
 
 // Re-export drain for advanced use
 export { droppedLogCount as droppedCount } from './async-drain';
+
+// Outgoing HTTP client helpers (trace propagation to downstream services)
+export {
+    injectOutgoingHeaders,
+    tracedFetch,
+    attachAxiosTracing,
+} from './middleware/http-client';

@@ -16,12 +16,24 @@ export function observalogMiddleware(
         return Array.isArray(v) ? v[0] : (v ?? '');
     };
 
+    // Continue an existing trace OR start a fresh one at the entry point.
+    // Never leave traceId empty — applyGracefulDegradation generates a NEW
+    // sys_<uuid> for every emitLine call, so all logs in one request would
+    // have different trace IDs and the brain could not correlate them.
+    const incomingTraceId = h('x-trace-id');
+    const traceId = incomingTraceId !== ''
+        ? incomingTraceId
+        : 'trc_' + uuidv4().replace(/-/g, '').substring(0, 10); // 14 chars: trc_ + 10
+
+    // Prefer inherited journey_stage; fall back to auto-derive.
+    const incomingStage = h('x-journey-stage');
+
     const ctx = {
-        traceId:      h('x-trace-id'),
+        traceId,
         spanId:       'spn_' + uuidv4().substring(0, 3),
-        parentSpan:   h('x-parent-span-id'),
+        parentSpan:   h('x-parent-span-id'),  // upstream span → our parent_span
         userId:       h('x-user-id'),
-        journeyStage: deriveJourneyStage(req.path),
+        journeyStage: incomingStage !== '' ? incomingStage : deriveJourneyStage(req.path),
         seq:          { value: 0 },
     };
 

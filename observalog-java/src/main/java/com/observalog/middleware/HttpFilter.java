@@ -19,12 +19,31 @@ public class HttpFilter implements Filter {
             throws IOException, ServletException {
         HttpServletRequest req = (HttpServletRequest) request;
 
+        // Continue an existing trace OR start a fresh one at the entry point.
+        // Never rely on graceful degradation here — that would generate a
+        // different sys_<uuid> for every ObservaLog.info() call in the same request.
+        String traceId = header(req, "X-Trace-Id");
+        if (traceId.isEmpty()) {
+            // "trc_" (4) + 10 hex chars = 14 bytes — fits the Part A trace_id slot.
+            traceId = "trc_" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        }
+
+        // The upstream span becomes parent_span; generate a fresh one for this hop.
+        String parentSpan = header(req, "X-Parent-Span-Id");
+        String spanId     = "spn_" + UUID.randomUUID().toString().substring(0, 3);
+
+        // Prefer inherited journey_stage; fall back to auto-derive.
+        String journeyStage = header(req, "X-Journey-Stage");
+        if (journeyStage.isEmpty()) {
+            journeyStage = deriveJourneyStage(req.getRequestURI());
+        }
+
         LogContext ctx = new LogContext();
-        ctx.setTraceId(header(req, "X-Trace-Id"));
-        ctx.setSpanId("spn_" + UUID.randomUUID().toString().substring(0, 3));
-        ctx.setParentSpan(header(req, "X-Parent-Span-Id"));
+        ctx.setTraceId(traceId);
+        ctx.setSpanId(spanId);
+        ctx.setParentSpan(parentSpan);
         ctx.setUserId(header(req, "X-User-Id"));
-        ctx.setJourneyStage(deriveJourneyStage(req.getRequestURI()));
+        ctx.setJourneyStage(journeyStage);
 
         LogContext.set(ctx);
         try {
