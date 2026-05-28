@@ -1,0 +1,51 @@
+[package]
+name = "observalog-brain"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.38", features = ["full"] }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono", "bigdecimal"] }
+
+# Kafka
+rdkafka = { version = "0.36", features = ["tokio"] }
+
+# Redis (Valkey, Gap 5 grace window)
+redis = { version = "0.24", features = ["tokio-comp", "aio"] }
+
+# HTTP (Anthropic API)
+reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
+
+# WebSocket API
+axum = { version = "0.7", features = ["ws"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Hashing — must match observalog-go ComputeFingerprint (Decision 9)
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Async utilities
+futures = "0.3"
+tokio-stream = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = true
