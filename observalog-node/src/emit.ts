@@ -28,6 +28,10 @@ export function error(event: string, message: string, fields: F = {}): void {
     emitLine(Level.Error, event, message, fields);
 }
 
+function isErrLike(v: unknown): v is Err | { kind: string; code: string; message: string; retryable: boolean } {
+    return v !== null && typeof v === 'object' && 'code' in v && 'message' in v;
+}
+
 function emitLine(level: Level, event: string, message: string, fields: F): void {
     if (level < minLevel) return;
 
@@ -50,8 +54,16 @@ function emitLine(level: Level, event: string, message: string, fields: F): void
             outcome = v as Outcome;
         } else if (k === 'duration_ms' && typeof v === 'number') {
             durationMs = v;
-        } else if (k === 'error' && v instanceof Err) {
-            errField = v;
+        } else if (k === 'error' && isErrLike(v)) {
+            // Accept both `new Err(...)` instances and plain objects with the same shape
+            errField = v instanceof Err
+                ? v
+                : new Err(
+                    String((v as any).kind    ?? ''),
+                    String((v as any).code    ?? ''),
+                    String((v as any).message ?? ''),
+                    Boolean((v as any).retryable),
+                  );
         } else {
             devCtx[k] = v;
         }

@@ -125,18 +125,13 @@ fn check_raw_pii_in_log(path: &str, func: &GoFunction) -> Vec<Finding> {
 
 fn check_undeclared_abbreviation(path: &str, func: &GoFunction) -> Vec<Finding> {
     let mut findings = Vec::new();
-    // Known abbreviations from dict.go
-    let known_abbrev = vec![
-        "e", "m", "ms", "c", "o", "er", "ek", "ec", "em", "rt",
-        "di", "tp", "pt", "of", "pr", "hs", "ui", "js",
-    ];
 
     let ctx_pattern = regex::Regex::new(r#"log\.F\{\s*"([^"]+)""#).unwrap();
 
     for caps in ctx_pattern.captures_iter(&func.body) {
         if let Some(key_match) = caps.get(1) {
             let key = key_match.as_str();
-            if !known_abbrev.contains(&key) && !is_common_field(key) {
+            if !is_known_field(key) {
                 findings.push(Finding::warn(
                     "UNDECLARED_ABBREVIATION",
                     path,
@@ -152,10 +147,19 @@ fn check_undeclared_abbreviation(path: &str, func: &GoFunction) -> Vec<Finding> 
     findings
 }
 
-fn is_common_field(key: &str) -> bool {
-    // These are allowed without abbreviation
+fn is_known_field(key: &str) -> bool {
+    // Structural fields injected or handled by the library
+    // Abbreviated wire keys (from dict.go)
+    // Full developer-facing names (also from dict.go — library abbreviates them)
     matches!(
         key,
+        // Structural / always-allowed
         "outcome" | "duration_ms" | "error" | "user_id" | "journey_stage" | "ctx_primary_key"
+        // Dict full names (developer writes these; library encodes to abbreviations)
+        | "event" | "message" | "ctx" | "doc_id" | "topic" | "partition"
+        | "offset" | "provider" | "http_status"
+        // Dict abbreviated keys (in case someone passes the short form directly)
+        | "e" | "m" | "ms" | "c" | "o" | "er" | "ek" | "ec" | "em" | "rt"
+        | "di" | "tp" | "pt" | "of" | "pr" | "hs" | "ui" | "js"
     )
 }
