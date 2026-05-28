@@ -4,6 +4,8 @@
 
 ObservaLog enforces *what* every log must contain, *how* it travels on the wire, and *what* your AI triage engine does when something fails — all three as first-class, versioned contracts across every service language.
 
+→ [Live site](https://darshanredkar11.github.io/observalog) · [Whitepaper](docs/whitepaper.md) · [Wire format](docs/wire-format.md)
+
 ---
 
 ## The problem
@@ -38,7 +40,7 @@ log.Error(ctx, "event", ...)   →  forward        →           →     parse P
 Every log call, in every language, emits exactly two lines:
 
 ```
-A:1|trc_7f2a1b9e4d|spn_004|spn_001|04|2|1|1|1748268153812
+1|trc_7f2a1b9e4d01|spn_004|spn_001|04|2|3|2|1748268153812
 {"e":"provider.send.rejected","m":"Provider rejected document send","er":{"ek":"RateLimitExceeded","ec":"PROVIDER_QUOTA_EXCEEDED","rt":true},"c":{"di":"doc123","hs":429},"o":"failure","ms":87}
 ```
 
@@ -55,7 +57,7 @@ A:1|trc_7f2a1b9e4d|spn_004|spn_001|04|2|1|1|1748268153812
 | [`observalog-go`](observalog-go/) | Go | Library for Go services. Emits two-line NDJSON to stdout. |
 | [`observalog-java`](observalog-java/) | Java | Library for Java/Spring services. ThreadLocal context, Servlet filter. |
 | [`observalog-node`](observalog-node/) | Node.js / TypeScript | Library for Node.js services. AsyncLocalStorage context, Express middleware. |
-| [`logscanner`](logscanner/) | Rust | CI static analyser. Enforces log contracts at merge time. Exit 1 = block. |
+| [`logscanner`](logscanner/) | Rust | CI static analyser. Enforces log contracts at merge time for Go, Java, and Node.js. |
 | [`observalog-brain`](observalog-brain/) | Rust | AI triage engine. Kafka → TimescaleDB → LLM → WebSocket. |
 
 ---
@@ -71,8 +73,6 @@ docker compose up -d
 
 Starts: TimescaleDB · Kafka (KRaft, no Zookeeper) · Valkey · Fluent Bit · observalog-brain.
 
-The brain applies its own schema at startup. Fluent Bit tails all container stdout and forwards ObservaLog lines to Kafka automatically.
-
 WebSocket API available at `ws://localhost:4000/ws` once the brain is healthy.
 
 ---
@@ -84,15 +84,17 @@ WebSocket API available at `ws://localhost:4000/ws` once the brain is healthy.
 **Install**
 
 ```bash
-go get github.com/darshanredkar11/observalog-go@latest
+go get github.com/darshanredkar11/observalog/observalog-go@latest
 ```
+
+No registry setup required — Go fetches directly from GitHub.
 
 **Setup**
 
 ```go
 import (
-    log "github.com/darshanredkar11/observalog-go"
-    "github.com/darshanredkar11/observalog-go/middleware"
+    log "github.com/darshanredkar11/observalog/observalog-go"
+    "github.com/darshanredkar11/observalog/observalog-go/middleware"
 )
 
 func main() {
@@ -108,19 +110,19 @@ func main() {
 
 ```go
 // Informational
-log.Info(ctx, "doc.storage.saved", "Document written to storage", log.F{
-    "doc_id":  docID,
-    "bytes":   n,
+log.Info(ctx, "doc.document.created", "Document written to storage", log.F{
+    "doc_id": docID,
+    "bytes":  n,
 })
 
-// Decision point — outcome + duration required
+// Decision point — outcome + duration required (scanner enforces this)
 log.Info(ctx, "auth.permission.checked", "Permission granted", log.F{
     "doc_id":      docID,
     "outcome":     log.Success,
     "duration_ms": time.Since(start).Milliseconds(),
 })
 
-// Error — structured Err, never a plain string
+// Error — structured Err, never a plain string (scanner blocks plain strings)
 log.Error(ctx, "provider.send.rejected", "Provider rejected document send", log.F{
     "doc_id":      docID,
     "outcome":     log.Failure,
@@ -137,7 +139,6 @@ log.Error(ctx, "provider.send.rejected", "Provider rejected document send", log.
 **Kafka consumer**
 
 ```go
-// Kafka consumer middleware — restores trace context from message headers
 handler := middleware.KafkaConsumerMiddleware(func(ctx context.Context, msg *kafka.Message) error {
     log.Info(ctx, "doc.event.received", "Processing document event", log.F{"doc_id": docID})
     return processMessage(ctx, msg)
@@ -150,9 +151,16 @@ handler := middleware.KafkaConsumerMiddleware(func(ctx context.Context, msg *kaf
 
 **Install (Maven)**
 
-Add to your `pom.xml`:
+Add the GitHub Packages repository to your `pom.xml`:
 
 ```xml
+<repositories>
+    <repository>
+        <id>github</id>
+        <url>https://maven.pkg.github.com/darshanredkar11/observalog</url>
+    </repository>
+</repositories>
+
 <dependency>
     <groupId>com.observalog</groupId>
     <artifactId>observalog-java</artifactId>
@@ -160,25 +168,14 @@ Add to your `pom.xml`:
 </dependency>
 ```
 
-Published to GitHub Packages. Add the repository:
-
-```xml
-<repositories>
-    <repository>
-        <id>github</id>
-        <url>https://maven.pkg.github.com/darshanredkar11/observalog-java</url>
-    </repository>
-</repositories>
-```
-
-Add credentials to `~/.m2/settings.xml`:
+Add your GitHub credentials to `~/.m2/settings.xml`:
 
 ```xml
 <servers>
     <server>
         <id>github</id>
         <username>YOUR_GITHUB_USERNAME</username>
-        <password>YOUR_GITHUB_TOKEN</password>
+        <password>YOUR_GITHUB_TOKEN</password>  <!-- needs read:packages scope -->
     </server>
 </servers>
 ```
@@ -188,7 +185,7 @@ Add credentials to `~/.m2/settings.xml`:
 ```kotlin
 repositories {
     maven {
-        url = uri("https://maven.pkg.github.com/darshanredkar11/observalog-java")
+        url = uri("https://maven.pkg.github.com/darshanredkar11/observalog")
         credentials {
             username = project.findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
             password = project.findProperty("gpr.key") as String? ?: System.getenv("GITHUB_TOKEN")
@@ -202,8 +199,6 @@ dependencies {
 ```
 
 **Setup — Spring Boot**
-
-Register the servlet filter to inject `LogContext` on every HTTP request:
 
 ```java
 @Bean
@@ -223,7 +218,7 @@ import com.observalog.Err;
 import com.observalog.Outcome;
 
 // Info
-ObservaLog.info("doc.storage.saved", "Document written to storage", Map.of(
+ObservaLog.info("doc.document.created", "Document written to storage", Map.of(
     "doc_id", docId,
     "bytes", bytes
 ));
@@ -235,7 +230,7 @@ ObservaLog.info("auth.permission.checked", "Permission granted", Map.of(
     "duration_ms", duration
 ));
 
-// Error
+// Error — typed Err, not a string (scanner blocks: Map.of("error", "some string"))
 ObservaLog.error("provider.send.rejected", "Provider rejected document send", Map.of(
     "doc_id",      docId,
     "outcome",     Outcome.FAILURE,
@@ -244,10 +239,9 @@ ObservaLog.error("provider.send.rejected", "Provider rejected document send", Ma
 ));
 ```
 
-**Kafka consumer (Java)**
+**Kafka consumer**
 
 ```java
-// Wrap each Kafka record before processing
 KafkaConsumerMiddleware.wrap(record);
 try {
     processRecord(record);
@@ -263,8 +257,13 @@ try {
 **Install**
 
 ```bash
+# Tell npm to use GitHub Packages for the @darshanredkar11 scope
+echo "@darshanredkar11:registry=https://npm.pkg.github.com" >> .npmrc
+
 npm install @darshanredkar11/observalog-node
 ```
+
+Set `NODE_AUTH_TOKEN` to a GitHub token with `read:packages` scope (in CI: `secrets.GITHUB_TOKEN`).
 
 **Setup — Express**
 
@@ -273,7 +272,7 @@ import { init, shutdown } from '@darshanredkar11/observalog-node';
 import { httpMiddleware } from '@darshanredkar11/observalog-node/middleware';
 
 init({ serviceCode: 2, version: process.env.SERVICE_VERSION! });
-app.use(httpMiddleware());          // injects traceId, spanId, journeyStage per request
+app.use(httpMiddleware());   // injects traceId, spanId, journeyStage per request
 process.on('SIGTERM', shutdown);
 ```
 
@@ -284,9 +283,9 @@ import { info, warn, error } from '@darshanredkar11/observalog-node';
 import type { Err } from '@darshanredkar11/observalog-node';
 
 // Info
-info('doc.storage.saved', 'Document written to storage', {
+info('doc.document.created', 'Document written to storage', {
     doc_id: docId,
-    bytes: n,
+    bytes:  n,
 });
 
 // Decision point
@@ -296,7 +295,7 @@ info('auth.permission.checked', 'Permission granted', {
     duration_ms: Date.now() - start,
 });
 
-// Error
+// Error — typed Err object, not a string
 const err: Err = {
     kind:      'RateLimitExceeded',
     code:      'PROVIDER_QUOTA_EXCEEDED',
@@ -311,7 +310,7 @@ error('provider.send.rejected', 'Provider rejected document send', {
 });
 ```
 
-**Kafka consumer (Node.js)**
+**Kafka consumer**
 
 ```typescript
 import { kafkaConsumerMiddleware } from '@darshanredkar11/observalog-node/middleware';
@@ -328,32 +327,55 @@ consumer.run({
 
 ## Add logscanner to CI
 
+The scanner enforces five rules across Go, Java, and Node.js/TypeScript:
+
+| Rule | What it catches |
+|------|-----------------|
+| `UNDECLARED_EVENT` | event string doesn't match `domain.object.action` grammar |
+| `UNSTRUCTURED_ERROR` | `error` field is a plain string, not a typed `Err` struct |
+| `MISSING_DURATION` | `outcome` present without `duration_ms` |
+| `RAW_PII_IN_LOG` | `email`, `phone`, `password`, `token`, `ssn` in log context |
+| `UNDECLARED_ABBREVIATION` | context key not in the 18-entry wire dictionary |
+
 ```yaml
-- name: Scan logs
-  run: logscanner --files $(git diff --name-only origin/main...HEAD | grep '\.go$')
+- name: Install logscanner
+  run: cargo install --git https://github.com/darshanredkar11/observalog logscanner --locked
+
+- name: Scan changed files
+  run: |
+    FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(go|java|ts|js)$')
+    [ -n "$FILES" ] && logscanner --format text --files $FILES
 ```
 
-Exits 1 and blocks merge on any violation: missing event grammar, string errors, outcome without duration, missing trace propagation in HTTP clients.
+Exit code 1 = errors (block merge). Exit code 2 = warnings only.
+
+---
+
+## Publish new releases
+
+Tag prefixes trigger the publish workflows:
+
+```bash
+git tag java/v1.0.1 && git push origin java/v1.0.1   # → publishes to GitHub Packages Maven
+git tag node/v1.0.1 && git push origin node/v1.0.1   # → publishes to GitHub Packages npm
+git tag go/v1.0.1   && git push origin go/v1.0.1     # → creates GitHub Release (Go proxy picks up automatically)
+```
 
 ---
 
 ## Log contract
 
-Every log call, in every language, must contain:
-
 | Field | Required | Source |
 |-------|----------|--------|
 | `event` | always | Developer — `domain.object.action` grammar |
-| `message` | always | Developer — past tense, min 10 chars |
+| `message` | always | Developer — human-readable description |
 | `outcome` | decision points | Developer — `success/failure/partial/pending` |
 | `duration_ms` | when outcome present | Developer — wall clock of the operation |
 | `error` | level=Error or outcome=failure | Developer — typed `Err` struct, never a string |
 | `trace_id` | auto | Library — from context or `sys_<uuid>` |
 | `span_id` | auto | Library — generated at service entry |
 | `seq` | auto | Library — request-scoped atomic counter |
-| `ts` | auto | Library — UTC at emit time |
-
-The scanner enforces these at CI time. A PR that emits `Error` with a string `"error"` field never merges.
+| `ts_ms` | auto | Library — UTC milliseconds at emit time |
 
 ---
 
@@ -381,29 +403,7 @@ Valid: `auth.jwt.validated` · `doc.document.created` · `provider.send.rejected
 | TimescaleDB point lookup | 0.46ms (vs 35–85ms ClickHouse) |
 | LLM call elimination | ~95% via fingerprint dedup |
 | log_index row size | ~60 bytes |
-
----
-
-## Deployment
-
-See [docs/deployment-guide.md](docs/deployment-guide.md) for full infrastructure setup.
-
-**Required services:**
-- Kafka (log transport, Fluent Bit → brain)
-- TimescaleDB (log storage, hypertable with 1-day chunks)
-- Valkey (gap detection grace window, 30s TTL)
-- Anthropic API key (LLM triage)
-
----
-
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [docs/whitepaper.md](docs/whitepaper.md) | Architecture decisions, multi-language design, gap analysis |
-| [docs/wire-format.md](docs/wire-format.md) | Part A byte positions, Part B abbreviation dictionary |
-| [docs/event-grammar.md](docs/event-grammar.md) | Event naming contract and scanner rules |
-| [docs/deployment-guide.md](docs/deployment-guide.md) | Infrastructure setup and configuration |
+| Two-table I/O reduction | ~78% vs single-table JSONB |
 
 ---
 
@@ -419,12 +419,23 @@ cd observalog-java && mvn verify
 # Node.js library
 cd observalog-node && npm ci && npm test
 
-# Rust scanner
+# Rust scanner (all three languages)
 cd logscanner && cargo build --release && cargo test
 
 # Rust brain
 cd observalog-brain && cargo build --release && cargo test
 ```
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [docs/whitepaper.md](docs/whitepaper.md) | Architecture decisions, multi-language design, gap analysis |
+| [docs/wire-format.md](docs/wire-format.md) | Part A byte positions, Part B abbreviation dictionary |
+| [docs/event-grammar.md](docs/event-grammar.md) | Event naming contract and scanner rules |
+| [docs/deployment-guide.md](docs/deployment-guide.md) | Infrastructure setup and configuration |
 
 ---
 

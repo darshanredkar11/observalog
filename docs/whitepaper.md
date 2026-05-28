@@ -1,6 +1,6 @@
 # ObservaLog — Technical White Paper
 
-**Version 1.1**
+**Version 1.2**
 
 ---
 
@@ -8,7 +8,7 @@
 
 Distributed systems produce logs. Observability platforms consume them. The gap between the two — the question of *what* those logs must contain and *how* they must be structured — is left entirely to individual developer judgment, independently, at every team, at every company. The result is systems that cannot be automatically analysed, cannot detect dropped messages, and cannot route failure patterns to typed fix strategies without expensive human triage. The problem compounds in polyglot stacks: three services in three languages produce three log shapes, and no shared contract exists.
 
-ObservaLog is a five-component system that closes this gap across Go, Java, and Node.js. Three language libraries enforce structural contracts at emit time using identical wire format output. A Rust static analyser enforces positional contracts at CI time. A Rust triage engine consumes the structured wire format, detects failures, and routes them to typed repair categories using an LLM with deterministic output constraints.
+ObservaLog is a five-component system that closes this gap across Go, Java, and Node.js. Three language libraries enforce structural contracts at emit time using identical wire format output. A Rust static analyser enforces positional contracts at CI time across all three languages. A Rust triage engine consumes the structured wire format, detects failures, and routes them to typed repair categories using an LLM with deterministic output constraints.
 
 This paper describes the architecture, the cross-language contract design, the fourteen closed design decisions, and the ten gaps found and resolved during design.
 
@@ -110,7 +110,7 @@ The wire format is a language-agnostic contract, but the libraries that produce 
 
 ### 3.2 Go library
 
-Context is propagated through `context.Context` with typed keys. The HTTP middleware (`middleware.Middleware`) and Kafka consumer middleware (`middleware.KafkaConsumerMiddleware`) inject a `LogContext` struct at service entry. The `seq` field is a `*atomic.Uint32` pointer stored in context — it resets to 1 at service entry and auto-increments on every `Emit()` call.
+Context is propagated through `context.Context` with typed keys. The module path is `github.com/darshanredkar11/observalog/observalog-go`. The HTTP middleware (`middleware.Middleware`) and Kafka consumer middleware (`middleware.KafkaConsumerMiddleware`) inject a `LogContext` struct at service entry. The `seq` field is a `*atomic.Uint32` pointer stored in context — it resets to 1 at service entry and auto-increments on every `Emit()` call.
 
 Graceful degradation: when `context.Context` carries no `LogContext`, the library emits with `sys_<uuid>` trace IDs and `"system.background.untraced"` journey stage rather than panicking. Background jobs are legitimate emitters.
 
@@ -337,9 +337,10 @@ Kafka provides durability for the transport layer. The brain commits Kafka offse
 - **Embedding pipeline** — `log_payload.embedding VECTOR(384)` is schema-ready; the embedding computation step (at write time or async) is not yet implemented
 - **Outcome-based sampling** — the retention policy section documents the intent; the sampling logic before `insert_log_index` is not yet implemented
 - **Orphan cleanup** — payloads written without a corresponding index row are detectable via `log_payload LEFT JOIN log_index`; cleanup runs at brain startup
-- **MISSING_EXIT_LOG and MISSING_OUTCOME scanner rules** — the rule interfaces exist in `logscanner`; full AST branch analysis requires a Go parser integration (tree-sitter or go/ast via subprocess)
+- **MISSING_EXIT_LOG and MISSING_OUTCOME scanner rules** — the rule interfaces exist in `logscanner` for all three languages; full AST branch analysis requires a Go parser integration (tree-sitter or go/ast via subprocess) and TypeScript AST traversal
 - **Python and Ruby libraries** — `observalog-python` and `observalog-ruby` would follow the same wire contract; Node.js serves as the reference implementation for dynamic-language libraries
+- **logscanner Java and Node.js** — five static-analysis rules (`UNDECLARED_EVENT`, `UNSTRUCTURED_ERROR`, `MISSING_DURATION`, `RAW_PII_IN_LOG`, `UNDECLARED_ABBREVIATION`) are now implemented and tested for Java and Node.js/TypeScript alongside Go. Scanner dispatches on `.go`, `.java`, `.ts`, `.tsx`, `.js`, `.mjs`, `.cjs` extensions.
 
 ---
 
-*ObservaLog v1.1 — wire format contracts frozen at schema version 1. Three-language library support added in v1.1.*
+*ObservaLog v1.2 — wire format contracts frozen at schema version 1. Three-language library support added in v1.1. logscanner extended to Java and Node.js/TypeScript in v1.2.*

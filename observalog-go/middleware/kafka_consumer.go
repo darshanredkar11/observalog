@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync/atomic"
 
-	log "github.com/darshanredkar11/observalog-go"
+	log "github.com/darshanredkar11/observalog/observalog-go"
 )
 
 // Message represents a Kafka message with headers.

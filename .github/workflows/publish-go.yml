@@ -32,5 +32,5 @@ jobs:
           body: |
             Go library release. Consumers add with:
             ```
-            go get github.com/darshanredkar11/observalog-go@${{ github.ref_name }}
+            go get github.com/darshanredkar11/observalog/observalog-go@${{ github.ref_name }}
             ```

@@ -4,10 +4,10 @@
   "description": "Structured log emission library for Node.js services",
   "repository": {
     "type": "git",
-    "url": "https://github.com/darshanredkar11/observalog-node.git"
+    "url": "https://github.com/darshanredkar11/observalog.git"
   },
   "publishConfig": {
-    "registry": "https://registry.npmjs.org/",
+    "registry": "https://npm.pkg.github.com",
     "access": "public"
   },
   "main": "dist/index.js",

@@ -1,4 +1,4 @@
-module github.com/darshanredkar11/observalog-go
+module github.com/darshanredkar11/observalog/observalog-go
 
 go 1.22.5
 

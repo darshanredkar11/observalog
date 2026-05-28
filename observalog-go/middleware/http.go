@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/google/uuid"
-	log "github.com/darshanredkar11/observalog-go"
+	log "github.com/darshanredkar11/observalog/observalog-go"
 )
 
 var (
