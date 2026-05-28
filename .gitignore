@@ -1,0 +1,23 @@
+# Rust
+target/
+Cargo.lock
+*.rlib
+
+# Go
+vendor/
+*.test
+*.out
+go.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+*.env
