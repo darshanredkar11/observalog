@@ -20,7 +20,6 @@
 ///   [40]    out (1 char: 0=none 1=success 2=failure 3=partial 4=pending)
 ///   [41]    |
 ///   [42-54] ts_ms (13 chars, unix milliseconds)
-
 pub const PART_A_SCHEMA_VERSION: u8 = 1;
 pub const PART_A_BYTE_LEN: usize = 55;
 

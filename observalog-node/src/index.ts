@@ -1,6 +1,6 @@
 export { F, Err, Outcome, Level } from './fields';
 export { Config, configFromEnv, init, shutdown } from './config';
-export { debug, info, warn, error, droppedLogCount } from './emit';
+export { debug, info, warn, error } from './emit';
 export { getContext, runWithContext, runWithContextAsync } from './context';
 export { computeFingerprint } from './fingerprint';
 

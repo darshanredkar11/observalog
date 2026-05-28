@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 pub struct AppState {
     pub db: PgPool,
@@ -91,7 +91,7 @@ async fn handle_request(text: &str, state: &AppState) -> WsResponse {
 
     match req {
         WsRequest::Triage { trace_id, anchor_ts_ms } => {
-            triage_trace(&state, &trace_id, anchor_ts_ms).await
+            triage_trace(state, &trace_id, anchor_ts_ms).await
         }
         WsRequest::UserErrors { user_id } => {
             match crate::db::queries::user_error_traces(&state.db, &user_id).await {
@@ -104,7 +104,7 @@ async fn handle_request(text: &str, state: &AppState) -> WsResponse {
 
 async fn triage_trace(state: &AppState, trace_id: &str, anchor_ts_ms: Option<i64>) -> WsResponse {
     let anchor_ts = anchor_ts_ms
-        .and_then(|ms| chrono::DateTime::from_timestamp_millis(ms))
+        .and_then(chrono::DateTime::from_timestamp_millis)
         .map(|dt| dt.with_timezone(&chrono::Utc))
         .unwrap_or_else(chrono::Utc::now);
 

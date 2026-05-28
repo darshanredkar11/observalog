@@ -1,10 +1,9 @@
 use super::parser::ParsedEntry;
-use super::writer_contract::MAX_PAYLOAD_FETCH_ROWS;
 use crate::db::queries;
 use anyhow::Result;
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Write one parsed entry to TimescaleDB.
 ///

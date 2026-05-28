@@ -8,7 +8,7 @@ use super::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// The full triage output for one failure event.
 #[derive(Debug, Clone, Serialize)]
@@ -76,7 +76,7 @@ pub async fn triage(
     );
 
     let response = call_anthropic(&prompt, cfg).await?;
-    let repair_id = RepairId::from_str(&response.repair_id);
+    let repair_id = RepairId::from_code(&response.repair_id);
 
     Ok(TriageResult {
         requires_escalation: repair_id.requires_escalation(),
@@ -90,7 +90,7 @@ pub async fn triage(
 }
 
 fn build_prompt(
-    chain: &TraceChain,
+    _chain: &TraceChain,
     classification: &Classification,
     env: &EnvironmentSnapshot,
     code_ctx: &CodeContext,

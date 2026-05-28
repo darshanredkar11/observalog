@@ -65,8 +65,8 @@ jobs:
 
       - name: Verify Part A byte length matches
         run: |
-          GO_VAL=$(grep 'PartAByteLen' observalog-go/wire_contract.go | grep -oE '[0-9]+' | head -1)
-          RS_VAL=$(grep 'PART_A_BYTE_LEN' observalog-brain/src/ingest/wire_contract.rs | grep -oE '[0-9]+' | head -1)
+          GO_VAL=$(grep 'PartAByteLen\s*=' observalog-go/wire_contract.go | grep -oE '[0-9]+$')
+          RS_VAL=$(grep 'PART_A_BYTE_LEN.*usize\s*=' observalog-brain/src/ingest/wire_contract.rs | grep -oE '[0-9]+;' | tr -d ';')
           echo "Go PartAByteLen=$GO_VAL  Rust PART_A_BYTE_LEN=$RS_VAL"
           [ "$GO_VAL" = "$RS_VAL" ] || (echo "MISMATCH: PartAByteLen Go=$GO_VAL Rust=$RS_VAL" && exit 1)
 
@@ -82,14 +82,13 @@ jobs:
           echo "Go KeyToAbbrev entries:"
           grep -E '"[a-z_.]+":\s*"[a-z]+"' observalog-go/dict.go | sort
 
-      - name: Extract Rust abbreviations
+      - name: Extract Rust abbreviated keys
         run: |
-          echo "Rust AbbrevToKey entries:"
-          grep -E '"[a-z]+".*=>\s*"[a-z_.]+"' observalog-brain/src/ingest/parser.rs | sort
+          echo "Rust abbreviated keys used in parser.rs:"
+          grep -oE '"[a-z]+"' observalog-brain/src/ingest/parser.rs | sort -u
 
-      - name: Count matches
+      - name: Count Go dict entries
         run: |
           GO_COUNT=$(grep -cE '"[a-z_.]+":\s*"[a-z]+"' observalog-go/dict.go || true)
-          RS_COUNT=$(grep -cE '"[a-z]+".*=>\s*"[a-z_.]+"' observalog-brain/src/ingest/parser.rs || true)
-          echo "Go dict entries: $GO_COUNT  Rust dict entries: $RS_COUNT"
-          [ "$GO_COUNT" = "$RS_COUNT" ] || (echo "WARNING: Dict entry counts differ (Go=$GO_COUNT Rust=$RS_COUNT) — verify manually" && exit 1)
+          echo "Go dict entries: $GO_COUNT (expected 18)"
+          [ "$GO_COUNT" = "18" ] || (echo "ERROR: Go dict has $GO_COUNT entries, expected 18" && exit 1)

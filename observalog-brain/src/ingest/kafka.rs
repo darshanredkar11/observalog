@@ -7,7 +7,6 @@ use rdkafka::{
     ClientConfig,
 };
 use sqlx::PgPool;
-use std::time::Duration;
 use tokio_stream::StreamExt;
 use tracing::{error, info, warn};
 

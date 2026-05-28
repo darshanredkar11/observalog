@@ -45,8 +45,7 @@ fn extract_functions(content: &str) -> Vec<GoFunction> {
             let mut brace_count = 0;
             let mut in_body = false;
 
-            for j in i..lines.len() {
-                let l = lines[j];
+            for (j, l) in lines.iter().enumerate().skip(i) {
                 for ch in l.chars() {
                     match ch {
                         '{' => {

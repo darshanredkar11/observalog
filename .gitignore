@@ -7,7 +7,6 @@ Cargo.lock
 vendor/
 *.test
 *.out
-go.sum
 
 # IDE
 .idea/

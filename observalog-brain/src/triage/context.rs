@@ -36,7 +36,7 @@ pub struct CodeSnippet {
 pub async fn retrieve(
     query: &str,
     version: &str,
-    index_path: &str,
+    _index_path: &str,
     top_k: usize,
 ) -> Result<CodeContext> {
     // Semble integration point.
@@ -52,7 +52,7 @@ pub async fn retrieve(
     })
 }
 
-fn retrieve_stub(query: &str, top_k: usize) -> Vec<CodeSnippet> {
+fn retrieve_stub(_query: &str, _top_k: usize) -> Vec<CodeSnippet> {
     // Placeholder until semble crate is integrated.
     // Returns empty — LLM will triage without code context.
     vec![]

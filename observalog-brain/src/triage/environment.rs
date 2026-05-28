@@ -1,12 +1,5 @@
 use anyhow::Result;
-use rdkafka::{
-    admin::{AdminClient, AdminOptions},
-    client::DefaultClientContext,
-    ClientConfig,
-};
-use redis::AsyncCommands;
 use serde::Serialize;
-use tracing::warn;
 
 /// Environment snapshot at triage trigger time — Decision 12 (borrowed from vercel-labs/zero).
 /// Captured before LLM call so the model has current service health context.

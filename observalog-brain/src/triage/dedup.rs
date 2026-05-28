@@ -32,7 +32,7 @@ pub async fn check(pool: &PgPool, fingerprint: i64) -> Result<DedupResult> {
                 "fingerprint hit — known issue"
             );
             Ok(DedupResult::Known {
-                repair_id: RepairId::from_str(&issue.repair_id),
+                repair_id: RepairId::from_code(&issue.repair_id),
                 cached_fix: issue.cached_fix,
                 occurrence_count: issue.occurrence_count,
             })

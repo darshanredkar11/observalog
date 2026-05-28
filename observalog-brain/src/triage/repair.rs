@@ -45,7 +45,7 @@ impl RepairId {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn from_code(s: &str) -> Self {
         match s {
             "NETWORK_RETRY"       => RepairId::NetworkRetry,
             "RATE_LIMIT_BACKOFF"  => RepairId::RateLimitBackoff,
@@ -87,7 +87,7 @@ mod tests {
     #[test]
     fn test_round_trip() {
         let r = RepairId::RateLimitBackoff;
-        assert_eq!(RepairId::from_str(r.as_str()), r);
+        assert_eq!(RepairId::from_code(r.as_str()), r);
     }
 
     #[test]
