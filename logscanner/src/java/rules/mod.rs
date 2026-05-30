@@ -76,16 +76,63 @@ fn check_raw_pii_in_log(path: &str, method: &JavaMethod) -> Vec<Finding> {
     let mut findings = Vec::new();
     let pii_fields = ["email", "phone", "password", "token", "ssn"];
 
-    for pii in &pii_fields {
-        if method.body.contains(&format!(r#""{}""#, pii)) {
-            findings.push(Finding::warn(
-                "RAW_PII_IN_LOG", path, &method.name,
-                method.line_start, 0,
-                format!("Potential PII field '{}' in log context", pii),
-            ));
+    // Only scan keys inside Map.of(...) arguments that appear in ObservaLog calls.
+    // Scanning the whole method body causes false positives on entity fields,
+    // JWT claims, HTTP response maps, and test fixtures.
+    let map_blocks = extract_map_of_blocks(&method.body);
+    if map_blocks.is_empty() {
+        return findings;
+    }
+
+    let key_pat = regex::Regex::new(r#""([^"]+)"\s*,"#).unwrap();
+    let mut reported = std::collections::HashSet::new();
+
+    for block in &map_blocks {
+        for caps in key_pat.captures_iter(block) {
+            if let Some(m) = caps.get(1) {
+                let key = m.as_str();
+                if pii_fields.contains(&key) && reported.insert(key.to_string()) {
+                    findings.push(Finding::warn(
+                        "RAW_PII_IN_LOG", path, &method.name,
+                        method.line_start, 0,
+                        format!("Potential PII field '{}' in Map.of log context", key),
+                    ));
+                }
+            }
         }
     }
     findings
+}
+
+/// Extract the content inside every Map.of(...) block in body.
+fn extract_map_of_blocks(body: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut search = body;
+
+    while let Some(pos) = search.find("Map.of(") {
+        let after_paren = pos + "Map.of(".len();
+        let rest = &search[after_paren..];
+
+        let mut depth = 1i32;
+        let mut end = rest.len();
+        for (i, ch) in rest.char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = i;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        blocks.push(rest[..end].to_string());
+        search = &search[pos + 1..];
+    }
+
+    blocks
 }
 
 // ─── Rule: UNDECLARED_ABBREVIATION ───────────────────────────────────────────
@@ -118,6 +165,9 @@ fn is_known_field(key: &str) -> bool {
         | "offset" | "provider" | "http_status"
         | "e" | "m" | "ms" | "c" | "o" | "er" | "ek" | "ec" | "em" | "rt"
         | "di" | "tp" | "pt" | "of" | "pr" | "hs" | "ui" | "js"
+        | "method" | "path" | "status" | "ip" | "user_agent" | "latency"
+        | "bytes" | "request_id" | "host" | "scheme" | "query"
+        | "mt" | "ph" | "st" | "ua" | "lt" | "byt" | "rid"
     )
 }
 

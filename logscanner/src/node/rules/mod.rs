@@ -80,16 +80,32 @@ fn check_raw_pii_in_log(path: &str, func: &NodeFunction) -> Vec<Finding> {
     let mut findings = Vec::new();
     let pii_fields = ["email", "phone", "password", "token", "ssn"];
 
-    for pii in &pii_fields {
-        // Match as an object key: email: or 'email': or "email":
-        let pattern = format!(r#"(?:['"`]?{}['"`]?\s*:)"#, pii);
-        if let Ok(re) = regex::Regex::new(&pattern) {
-            if re.is_match(&func.body) {
-                findings.push(Finding::warn(
-                    "RAW_PII_IN_LOG", path, &func.name,
-                    func.line_start, 0,
-                    format!("Potential PII field '{}' in log context", pii),
-                ));
+    // Only scan keys inside the fields object of log calls:
+    //   log.info('event', 'msg', { email: req.body.email })   ← flag
+    //   res.json({ email: user.email })                        ← skip (not a log call)
+    let log_call_pat = regex::Regex::new(
+        r#"(?:log|ObservaLog|logger)\s*\.\s*(?:info|warn|error|debug)\s*\([^{]*\{([^}]*)\}"#
+    ).unwrap();
+
+    let key_pat = regex::Regex::new(
+        r#"['"`]?([a-zA-Z_][a-zA-Z0-9_]*)['"`]?\s*:"#
+    ).unwrap();
+
+    let mut reported = std::collections::HashSet::new();
+
+    for call_caps in log_call_pat.captures_iter(&func.body) {
+        if let Some(fields_match) = call_caps.get(1) {
+            for key_caps in key_pat.captures_iter(fields_match.as_str()) {
+                if let Some(k) = key_caps.get(1) {
+                    let key = k.as_str();
+                    if pii_fields.contains(&key) && reported.insert(key.to_string()) {
+                        findings.push(Finding::warn(
+                            "RAW_PII_IN_LOG", path, &func.name,
+                            func.line_start, 0,
+                            format!("Potential PII field '{}' in log context", key),
+                        ));
+                    }
+                }
             }
         }
     }
@@ -137,6 +153,9 @@ fn is_known_field(key: &str) -> bool {
         | "offset" | "provider" | "http_status"
         | "e" | "m" | "ms" | "c" | "o" | "er" | "ek" | "ec" | "em" | "rt"
         | "di" | "tp" | "pt" | "of" | "pr" | "hs" | "ui" | "js"
+        | "method" | "path" | "status" | "ip" | "user_agent" | "latency"
+        | "bytes" | "request_id" | "host" | "scheme" | "query"
+        | "mt" | "ph" | "st" | "ua" | "lt" | "byt" | "rid"
     )
 }
 

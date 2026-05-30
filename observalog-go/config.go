@@ -1,6 +1,7 @@
 package log
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -40,18 +41,32 @@ func ConfigFromEnv(version string) Config {
 	}
 }
 
-// Init validates config, starts the drain goroutine, and sets globals.
-// Must be called before any log calls. Panics on invalid config.
+// Init validates config, starts the drain goroutine, and sets package globals.
+// Must be called before any log calls.
+//
+// Returns an error — it no longer panics. Collect all missing vars in one
+// error so callers can surface a useful message rather than a series of
+// panics:
+//
+//	if err := log.Init(log.ConfigFromEnv("v1.0.0")); err != nil {
+//	    log.Fatalf("observalog: %v", err)
+//	}
+//
+// Use MustInit if you prefer panic-on-error behaviour (e.g. in test helpers).
 func Init(cfg Config) error {
-	// Validate required fields.
+	// Collect all missing required fields in one pass.
+	var missing []string
 	if cfg.ServiceName == "" {
-		panic("Init: SERVICE_NAME env var required")
+		missing = append(missing, "SERVICE_NAME")
 	}
 	if cfg.Env == "" {
-		panic("Init: ENV env var required")
+		missing = append(missing, "ENV")
 	}
 	if cfg.Level == "" {
-		panic("Init: LOG_LEVEL env var required")
+		missing = append(missing, "LOG_LEVEL")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("observalog Init: missing required config: %s", strings.Join(missing, ", "))
 	}
 
 	// Parse and set minLevel.
@@ -65,7 +80,7 @@ func Init(cfg Config) error {
 	case "error":
 		minLevel = LevelError
 	default:
-		panic("Init: invalid LOG_LEVEL=" + cfg.Level)
+		return fmt.Errorf("observalog Init: invalid LOG_LEVEL=%q (want debug|info|warn|error)", cfg.Level)
 	}
 
 	// Set service code based on name.
@@ -87,6 +102,15 @@ func Init(cfg Config) error {
 	StartDrainGoroutine(os.Stdout, cfg.BufferSize)
 
 	return nil
+}
+
+// MustInit calls Init and panics if it returns an error.
+// Prefer Init in production code; use MustInit in test helpers or main()
+// where a missing config is a programmer error, not a runtime condition.
+func MustInit(cfg Config) {
+	if err := Init(cfg); err != nil {
+		panic(err)
+	}
 }
 
 // Shutdown drains the buffer and closes the channel.

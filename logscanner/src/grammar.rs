@@ -9,9 +9,22 @@ lazy_static! {
 
     static ref ACTIONS: HashSet<&'static str> = {
         vec![
+            // Original 15 verbs
             "received", "validated", "rejected", "published", "failed",
             "exhausted", "expired", "attempted", "succeeded", "created",
             "updated", "deleted", "queried", "connected", "disconnected",
+            // Auth / identity domain verbs (v1.2 — added from real integration feedback)
+            "registered",   // auth.user.registered (sign-up, distinct from created)
+            "revoked",      // auth.session.revoked (preserves audit trail, ≠ deleted)
+            "locked",       // auth.login.locked (lockout after failed attempts)
+            "refreshed",    // auth.token.refreshed (more specific than updated)
+            "challenged",   // auth.mfa.challenged (MFA prompt issued)
+            "verified",     // auth.email.verified / auth.mfa.verified
+            "enabled",      // auth.mfa.enabled (feature toggle, ≠ created)
+            "disabled",     // auth.mfa.disabled
+            "rotated",      // auth.key.rotated (secrets, API keys)
+            "granted",      // auth.permission.granted (explicit allow)
+            "denied",       // auth.permission.denied (explicit deny, ≠ rejected)
         ].into_iter().collect()
     };
 
@@ -69,6 +82,16 @@ mod tests {
         assert!(validate_event("doc.document.created").is_ok());
         assert!(validate_event("provider.send.failed").is_ok());
         assert!(validate_event("infra.db.queried").is_ok());
+        // v1.2 auth/identity verbs
+        assert!(validate_event("auth.user.registered").is_ok());
+        assert!(validate_event("auth.session.revoked").is_ok());
+        assert!(validate_event("auth.login.locked").is_ok());
+        assert!(validate_event("auth.token.refreshed").is_ok());
+        assert!(validate_event("auth.mfa.challenged").is_ok());
+        assert!(validate_event("auth.email.verified").is_ok());
+        assert!(validate_event("auth.mfa.enabled").is_ok());
+        assert!(validate_event("auth.permission.granted").is_ok());
+        assert!(validate_event("auth.permission.denied").is_ok());
     }
 
     #[test]

@@ -105,22 +105,73 @@ fn check_missing_outcome(_path: &str, _func: &GoFunction) -> Vec<Finding> {
 
 fn check_raw_pii_in_log(path: &str, func: &GoFunction) -> Vec<Finding> {
     let mut findings = Vec::new();
-    let pii_fields = vec!["email", "phone", "password", "token", "ssn"];
+    let pii_fields = ["email", "phone", "password", "token", "ssn"];
 
-    for pii in pii_fields {
-        if func.body.contains(&format!(r#""{}""#, pii)) {
-            findings.push(Finding::warn(
-                "RAW_PII_IN_LOG",
-                path,
-                &func.name,
-                func.line_start,
-                0,
-                format!("Potential PII field '{}' in log context", pii),
-            ));
+    // Only scan keys inside log.F{...} blocks.
+    // Scanning the whole function body causes false positives on JWT claim maps,
+    // gin.H{} response bodies, struct tags, and test fixtures — all of which
+    // legitimately reference "email", "token", etc. without logging them.
+    let log_f_blocks = extract_log_f_blocks(&func.body);
+    if log_f_blocks.is_empty() {
+        return findings;
+    }
+
+    let key_pat = regex::Regex::new(r#""([^"]+)"\s*:"#).unwrap();
+    let mut reported = std::collections::HashSet::new();
+
+    for block in &log_f_blocks {
+        for caps in key_pat.captures_iter(block) {
+            if let Some(m) = caps.get(1) {
+                let key = m.as_str();
+                if pii_fields.contains(&key) && reported.insert(key.to_string()) {
+                    findings.push(Finding::warn(
+                        "RAW_PII_IN_LOG",
+                        path,
+                        &func.name,
+                        func.line_start,
+                        0,
+                        format!("Potential PII field '{}' in log.F context", key),
+                    ));
+                }
+            }
         }
     }
 
     findings
+}
+
+/// Extract the content inside every log.F{...} block in body.
+/// Uses brace counting so multi-line blocks are handled correctly.
+fn extract_log_f_blocks(body: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut search = body;
+
+    while let Some(pos) = search.find("log.F{") {
+        let after_brace = pos + "log.F{".len();
+        let rest = &search[after_brace..];
+
+        let mut depth = 1i32;
+        let mut end = rest.len(); // fallback: unclosed brace
+        for (i, ch) in rest.char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = i;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        blocks.push(rest[..end].to_string());
+
+        // Advance past current "log.F{" to find the next occurrence.
+        search = &search[pos + 1..];
+    }
+
+    blocks
 }
 
 fn check_undeclared_abbreviation(path: &str, func: &GoFunction) -> Vec<Finding> {
@@ -148,18 +199,21 @@ fn check_undeclared_abbreviation(path: &str, func: &GoFunction) -> Vec<Finding> 
 }
 
 fn is_known_field(key: &str) -> bool {
-    // Structural fields injected or handled by the library
-    // Abbreviated wire keys (from dict.go)
-    // Full developer-facing names (also from dict.go — library abbreviates them)
     matches!(
         key,
-        // Structural / always-allowed
+        // ── Structural fields (injected by library or always meaningful) ──
         "outcome" | "duration_ms" | "error" | "user_id" | "journey_stage" | "ctx_primary_key"
-        // Dict full names (developer writes these; library encodes to abbreviations)
+        // ── Dict full names (library abbreviates these in Part B) ──
         | "event" | "message" | "ctx" | "doc_id" | "topic" | "partition"
         | "offset" | "provider" | "http_status"
-        // Dict abbreviated keys (in case someone passes the short form directly)
+        // ── Dict abbreviated wire keys ──
         | "e" | "m" | "ms" | "c" | "o" | "er" | "ek" | "ec" | "em" | "rt"
         | "di" | "tp" | "pt" | "of" | "pr" | "hs" | "ui" | "js"
+        // ── Common HTTP observability fields ──
+        // These appear in request-logging middleware in virtually every web service.
+        | "method" | "path" | "status" | "ip" | "user_agent" | "latency"
+        | "bytes" | "request_id" | "host" | "scheme" | "query"
+        // abbreviated forms
+        | "mt" | "ph" | "st" | "ua" | "lt" | "byt" | "rid"
     )
 }
