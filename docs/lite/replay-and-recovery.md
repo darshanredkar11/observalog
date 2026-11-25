@@ -2,7 +2,7 @@
 
 The raw journal and `lite_gate_work` are durable. The in-process workers are only executors; work is not held only in memory. The brain can restart without losing accepted raw records or queued gate work.
 
-Admission is bounded by `LITE_MAX_INFLIGHT_GATE_WORK` (default 50,000 pending/leased items across all gates). The ingest transaction takes a short advisory lock while it checks capacity, preventing concurrent HTTP batches from collectively exceeding the configured bound. When full, ingest returns HTTP 503 and the transaction is rolled back; Fluent Bit's filesystem buffer retries after capacity becomes available. Batches over 10,000 records are rejected with HTTP 413.
+Admission is bounded by `LITE_MAX_INFLIGHT_GATE_WORK` (default 50,000 pending/leased items across all gates). The ingest transaction takes a short advisory lock while it checks capacity, preventing concurrent HTTP batches from collectively exceeding the configured bound. When full, ingest returns HTTP 503 and the transaction is rolled back; Fluent Bit's filesystem buffer retries after capacity becomes available.
 
 ## What an ingest 202 means
 
