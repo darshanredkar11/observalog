@@ -23,6 +23,7 @@ services:
       DATABASE_URL: postgres://observalog:${POSTGRES_PASSWORD:-observalog}@timescaledb:5432/observalog
       LISTEN_ADDR: 0.0.0.0:4000
       DB_MAX_CONNECTIONS: 20
+      LITE_MAX_INFLIGHT_GATE_WORK: 50000
       LITE_SLOW_THRESHOLD_MS: 1000
       RUST_LOG: info
     depends_on:
