@@ -101,8 +101,9 @@ async fn run_loop(
 
 fn normalize_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> GateFuture<'a> {
     Box::pin(async move {
-        let observed_at = Utc::now();
-        let event = adapter::adapt(&work.raw_text, &work.source_metadata, observed_at);
+        // Use the durable receipt timestamp, not worker execution time. This
+        // keeps inferred event timestamps stable across retries and replays.
+        let event = adapter::adapt(&work.raw_text, &work.source_metadata, work.received_at);
         let canonical = serde_json::to_value(&event)?;
         let mut tx = pool.begin().await?;
 
