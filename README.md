@@ -428,6 +428,16 @@ cd observalog-brain && cargo build --release && cargo test
 
 ---
 
+## Autonomous namespace ingestion (initiative)
+
+The proposed path for collecting existing Kubernetes container logs, adapting them to the existing ObservaLog contract, and preserving the Rust brain:
+
+- [Product requirements](docs/autonomous-observalog-prd.md)
+- [Sequence diagrams](docs/autonomous-observalog-sequences.md)
+- [Phased roadmap](docs/autonomous-observalog-roadmap.md)
+
+---
+
 ## Documentation
 
 | Document | Description |
