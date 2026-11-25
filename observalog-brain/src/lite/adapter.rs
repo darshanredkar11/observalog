@@ -64,6 +64,10 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
         "document_id", "doc_id", "workflow_id", "transaction_id", "export_id"
     ]);
     record_source_path(root, &["business_entity_id", "entity_id", "order_id", "orderId", "payment_id", "document_id", "doc_id", "workflow_id", "transaction_id", "export_id"], "business_entity_id", &mut provenance);
+    let message_id = text_field(root, &["message_id", "messageId", "messaging.message.id", "kafka_message_id", "kafkaMessageId", "delivery_id"]);
+    record_source_path(root, &["message_id", "messageId", "messaging.message.id", "kafka_message_id", "kafkaMessageId", "delivery_id"], "message_id", &mut provenance);
+    let dependency_name = text_field(root, &["dependency_name", "dependency_host", "upstream_host", "provider", "server.address", "net.peer.name", "db.system"]);
+    record_source_path(root, &["dependency_name", "dependency_host", "upstream_host", "provider", "server.address", "net.peer.name", "db.system"], "dependency_name", &mut provenance);
     let source_event_id = text_field(root, &["event_id", "eventId", "log_id", "logId", "record_id", "recordId"]);
     record_source_path(root, &["event_id", "eventId", "log_id", "logId", "record_id", "recordId"], "source_event_id", &mut provenance);
     let event_name = text_field(root, &["event_name", "eventName", "event.name", "event", "operation"]);
@@ -132,6 +136,8 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
         parent_span_id,
         request_id,
         business_entity_id,
+        message_id,
+        dependency_name,
         event_name,
         message,
         outcome,
