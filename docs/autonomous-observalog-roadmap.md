@@ -1,13 +1,13 @@
 # ObservaLog — Delivery Phases
 
-**Delivery strategy:** small, independently verifiable phases. Keep \`main\` stable; each phase is implemented on a short-lived feature branch and merged through a reviewed PR.
+**Delivery strategy:** small, independently verifiable phases. Keep `main` stable; each phase is implemented on a short-lived feature branch and merged through a reviewed PR.
 
 ## Phase 0 — Baseline and compatibility freeze
 
 **Goal:** Know exactly what must remain stable before changing transport or collection.
 
 Work:
-- Map the current \`observalog-brain\` ingestion, parser, writer, DB schema, triage and WebSocket path.
+- Map the current `observalog-brain` ingestion, parser, writer, DB schema, triage and WebSocket path.
 - Record contract-v1 fixtures and end-to-end behavior for existing Go/Java/Node producers.
 - Confirm the exact two-part line framing and current Fluent Bit filter behavior. The current README and wire-format examples must be reconciled before generic input is added.
 - Baseline throughput, p50/p95/p99 latency, CPU, RSS, database write rate and restart recovery.
@@ -31,11 +31,11 @@ Work:
 - ACK only after durable batch acceptance; choose and test either committed TimescaleDB batch persistence or an append-only local journal with replay.
 - Add deterministic idempotency keys and duplicate-safe writes.
 - Keep existing parser and downstream contract path intact.
-- Retain TimescaleDB and Valkey. Remove Kafka and \`rdkafka\` only after delivery/recovery tests pass.
+- Retain TimescaleDB and Valkey. Remove Kafka and `rdkafka` only after delivery/recovery tests pass.
 - Reduce Compose to one project with the required services and named volumes; keep a local Fluent Bit profile only for Docker-host log testing.
 
 Exit gate:
-- One \`docker compose up -d\` starts the control plane.
+- One `docker compose up -d` starts the control plane.
 - Fluent Bit can send a batch directly to the brain.
 - Brain/DB restart tests demonstrate no silent loss within configured buffers.
 - Retries do not create duplicate logical events/findings.
@@ -84,7 +84,7 @@ Exit gate:
 
 Work:
 - Partition stateful analysis by stable correlation key and assign one owner per partition.
-- Use bounded Tokio \`mpsc\` channels and explicit admission/backpressure policies.
+- Use bounded Tokio `mpsc` channels and explicit admission/backpressure policies.
 - Keep immutable messages between stages; avoid shared mutable state in the hot path.
 - Supervise tasks and implement cancellation, graceful drain and restart recovery.
 - Separate I/O-bound tasks from CPU-heavy parsing/analysis; add a bounded CPU executor only when benchmarks justify it.
@@ -118,7 +118,7 @@ Exit gate:
 
 ## Branch and PR discipline
 
-- This initiative starts from \`initiative/autonomous-namespace-ingestion\`.
+- This initiative starts from `initiative/autonomous-namespace-ingestion`.
 - Each implementation phase gets a separate branch from the current integration branch.
 - Each phase lands through a small PR with tests, benchmark evidence and rollback notes.
 - Do not combine transport migration, normalization, analysis changes and UI redesign in one PR.
