@@ -4,7 +4,7 @@ These diagrams describe the target flow. They are design contracts for implement
 
 ## 1. Connect a Kubernetes namespace
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     autonumber
     actor User
@@ -24,7 +24,7 @@ sequenceDiagram
     FB-->>Brain: Health/collector status
     Brain-->>UI: Connection ready + discovered workload summary
     UI-->>User: Live namespace activity
-\`\`\`
+```
 
 Notes:
 - The collector is node-level because container log files are node-local.
@@ -33,7 +33,7 @@ Notes:
 
 ## 2. Continuous pod/container log discovery
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     autonumber
     participant Kubelet
@@ -55,11 +55,11 @@ sequenceDiagram
     end
 
     Note over Kubelet,FB: New pod/container files are discovered automatically; no per-pod Rust task is required.
-\`\`\`
+```
 
 ## 3. Normalize an arbitrary log into the existing contract
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     autonumber
     participant FB as Fluent Bit
@@ -80,7 +80,7 @@ sequenceDiagram
     DB-->>Brain: Commit result
     Brain-->>Intake: Durable batch ACK
     Intake-->>FB: HTTP success
-\`\`\`
+```
 
 Rules:
 - Real trace/span/sequence/outcome values are preserved only when present in source evidence.
@@ -90,7 +90,7 @@ Rules:
 
 ## 4. Evidence-to-finding flow
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     autonumber
     participant Event as Normalized event
@@ -114,11 +114,11 @@ sequenceDiagram
     end
     Worker-->>UI: Finding created/updated/retracted
     UI-->>UI: Update live finding stream
-\`\`\`
+```
 
 ## 5. Collector and brain recovery
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     autonumber
     participant FB as Fluent Bit
@@ -141,13 +141,13 @@ sequenceDiagram
             FB->>Disk: Advance/remove acknowledged batch
         end
     end
-\`\`\`
+```
 
 The delivery guarantee is at-least-once with idempotent ingestion. A durable-acceptance boundary and duplicate-key design are release gates before removing Kafka.
 
 ## 6. Backpressure and worker isolation
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     autonumber
     participant FB as Fluent Bit
@@ -170,6 +170,6 @@ sequenceDiagram
         HTTP-->>FB: Retryable response
         FB->>FB: Keep batch in filesystem buffer
     end
-\`\`\`
+```
 
 No worker writes into another worker's mutable state. Queue saturation is visible and propagates upstream; it must not turn into unbounded memory growth or silent log loss.
