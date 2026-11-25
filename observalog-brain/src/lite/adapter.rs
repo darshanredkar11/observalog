@@ -85,7 +85,7 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
         .map(|s| s.to_ascii_lowercase());
     record_source_path(root, &["outcome", "result", "operation_status"], "outcome", &mut provenance);
     let duration_raw = find(root, &["duration_ms", "durationMs", "elapsed_ms", "latency_ms", "duration"]);
-    let duration_ms = duration_raw.and_then(|(v, path)| {
+    let duration_ms = duration_raw.as_ref().and_then(|(v, path)| {
         provenance.insert("duration_ms".into(), json!({"source_path":path,"method":"numeric"}));
         parse_number(v)
     });
