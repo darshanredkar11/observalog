@@ -75,7 +75,7 @@ WHERE e.id = w.payload_id
 COMMIT;
 ```
 
-To replay quality as well, include `quality` in the `gate_name` filter. Reprocessing is idempotent: relationship and signal uniqueness constraints prevent duplicate edges/signals, and finding writes upsert by incident key.
+To replay quality as well, include `quality` in the `gate_name` filter. Reprocessing is idempotent: relationship and signal uniqueness constraints prevent duplicate edges/signals; finding writes upsert by incident key, use event-time bounds for `first_seen`/`last_seen`, and keep `occurrence_count` at the number of unique evidence event IDs rather than incrementing on replay.
 
 For a single gate, reset only that gate. For downstream consistency, prefer resetting that gate and all downstream gates in its chain.
 
