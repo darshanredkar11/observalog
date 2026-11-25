@@ -43,10 +43,6 @@ async fn ingest_raw(
     if records.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "no records found".into()));
     }
-    if records.len() > 10_000 {
-        return Err((StatusCode::PAYLOAD_TOO_LARGE, "batch exceeds 10000 records".into()));
-    }
-
     let mut accepted = 0usize;
     let mut duplicates = 0usize;
     let mut tx = pool.begin().await.map_err(internal_error)?;
