@@ -29,6 +29,8 @@ docker compose up -d --build
 curl -fsS http://localhost:4000/health
 ```
 
+Compose publishes TimescaleDB (5432), brain (4000) and Fluent Bit metrics (2020) on loopback only. The raw-ingest token is not transport encryption: keep the service on a trusted private network or place it behind TLS-terminating ingress before remote access.
+
 The three runtime services are:
 
 - `timescaledb` — durable raw journal, gate work, canonical payloads and event projections.
