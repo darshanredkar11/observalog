@@ -402,6 +402,26 @@ def make_two_incidents() -> tuple[list[dict[str, Any]], dict[str, Any]]:
                     must_not=["identity→payments causal relationship"])
 
 
+def make_twelve_service_fanout() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    e: list[dict[str, Any]] = []
+    t = "trc-fanout12"; r = "req-fanout12"; o = "ord-fanout12"
+    event(e, "gateway", 0, "Checkout request accepted", trace=t, span="g12", request=r, entity=o, fmt="pino")
+    event(e, "identity", 8, "Customer identity verified", trace=t, span="a12", parent="g12", request=r, entity=o, fmt="otel")
+    event(e, "orders", 18, "Order workflow started", trace=t, span="o12", parent="g12", request=r, entity=o)
+    event(e, "catalog", 28, "Product details loaded", trace=t, span="c12", parent="o12", request=r, entity=o, fmt="node_pino")
+    event(e, "pricing", 36, "Price calculated", trace=t, span="pr12", parent="o12", request=r, entity=o, outcome="success")
+    event(e, "stock", 45, "Inventory reserved", trace=t, span="s12", parent="o12", request=r, entity=o, outcome="success", fmt="python_text")
+    event(e, "fraud", 52, "Risk assessment passed", trace=t, span="f12", parent="o12", request=r, entity=o, outcome="success", fmt="otel")
+    event(e, "risk", 57, "Velocity check passed", trace=t, span="r12", parent="f12", request=r, entity=o, outcome="success")
+    event(e, "tax", 72, "Tax provider returned HTTP 503", trace=t, span="tx12", parent="o12", request=r, entity=o, level="ERROR", outcome="failure", error_code="TAX_PROVIDER_503", attrs={"dependency_host": "tax.example", "http_status": 503}, fmt="spring_text")
+    event(e, "payments", 88, "Payment authorization blocked: tax quote unavailable", trace=t, span="p12", parent="o12", request=r, entity=o, level="WARN", outcome="failure", error_code="TAX_QUOTE_UNAVAILABLE")
+    event(e, "audit", 105, "Checkout failure audit record written", trace=t, span="au12", parent="o12", request=r, entity=o, fmt="unknown_json")
+    event(e, "notify", 120, "Checkout failure notification queued", trace=t, span="n12", parent="o12", request=r, entity=o, fmt="nginx_json")
+    return e, truth("external_dependency", "tax provider tax.example returned 503 during a twelve-service checkout flow",
+                    "tax.example", symptoms=["tax", "payments", "orders"],
+                    expected=["twelve service identities remain associated with one request", "tax failure precedes payment/order symptoms", "healthy parallel branches are not diagnosed as root causes"],
+                    confidence="high")
+
 def make_trace_collision() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     e: list[dict[str, Any]] = []
     event(e, "gateway", 0, "Request A received", trace="trc-reused", span="g-reuse-a",
@@ -448,6 +468,7 @@ CASES.update({
     "mixed-format-sparse-logs": make_mixed_sparse,
     "two-incidents-one-window": make_two_incidents,
     "trace-id-reuse": make_trace_collision,
+    "twelve-service-fanout": make_twelve_service_fanout,
 })
 
 
