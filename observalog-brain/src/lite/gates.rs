@@ -197,21 +197,25 @@ fn source_identity_key(event: &CanonicalEvent, metadata: &Value) -> Option<Strin
     Some(format!("{source}:{service}:{instance}:{source_id}"))
 }
 
+fn has_text(value: &Option<String>) -> bool {
+    value.as_deref().is_some_and(|text| !text.trim().is_empty())
+}
+
 fn assess_quality(event: &CanonicalEvent) -> Value {
     let mut flags: Vec<String> = event.quality["flags"].as_array()
         .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
         .unwrap_or_default();
 
-    if event.span_id.is_none() { flags.push("span_id_missing".into()); }
-    if event.parent_span_id.is_none() { flags.push("parent_span_missing".into()); }
-    if event.version.is_none() { flags.push("service_version_missing".into()); }
-    if event.instance.is_none() { flags.push("service_instance_missing".into()); }
-    if event.outcome.is_none() { flags.push("outcome_unknown".into()); }
+    if !has_text(&event.span_id) { flags.push("span_id_missing".into()); }
+    if !has_text(&event.parent_span_id) { flags.push("parent_span_missing".into()); }
+    if !has_text(&event.version) { flags.push("service_version_missing".into()); }
+    if !has_text(&event.instance) { flags.push("service_instance_missing".into()); }
+    if !has_text(&event.outcome) { flags.push("outcome_unknown".into()); }
     if event.duration_ms.is_none() { flags.push("duration_unknown".into()); }
 
     let mapped = [
-        event.service.is_some(), event.severity.is_some(), event.message.is_some(),
-        !event.event_ts_inferred, event.trace_id.is_some(), event.request_id.is_some(),
+        has_text(&event.service), has_text(&event.severity), has_text(&event.message),
+        !event.event_ts_inferred, has_text(&event.trace_id), has_text(&event.request_id),
     ].into_iter().filter(|present| *present).count();
     // Deduplicate before scoring: duplicate delivery or duplicate flags must not
     // amplify the quality penalty for the same conflict.
@@ -693,6 +697,41 @@ mod gate2_quality_tests {
         assert_eq!(q["flags"],json!(["conflicting_duration_aliases","conflicting_service_aliases"]));
         e.quality=json!({"flags":(0..1000).map(|i|format!("conflicting_alias_{i}")).collect::<Vec<_>>()});
         assert_eq!(assess_quality(&e)["mapping_confidence"],0.0);
+    }
+
+    #[test]
+    fn whitespace_only_core_fields_are_not_counted_as_mapped() {
+        let mut e=event();
+        e.service=Some("  ".into());
+        e.severity=Some("\t".into());
+        e.message=Some("\n".into());
+        e.trace_id=Some(" ".into());
+        e.request_id=Some("".into());
+        let q=assess_quality(&e);
+        assert_eq!(q["mapping_confidence"],0.16666666666666666);
+    }
+
+    #[test]
+    fn whitespace_optional_fields_are_flagged_missing() {
+        let mut e=event();
+        e.span_id=Some(" ".into());
+        e.parent_span_id=Some("\t".into());
+        e.version=Some("".into());
+        e.instance=Some("\n".into());
+        e.outcome=Some(" ".into());
+        let q=assess_quality(&e);
+        for flag in ["span_id_missing","parent_span_missing","service_version_missing","service_instance_missing","outcome_unknown"] {
+            assert!(q["flags"].as_array().unwrap().iter().any(|f|f==flag),"missing {flag}");
+        }
+    }
+
+    #[test]
+    fn all_core_fields_absent_including_blank_scores_zero() {
+        let mut e=event();
+        e.service=None; e.severity=None; e.message=None; e.trace_id=None; e.request_id=None;
+        e.event_ts_inferred=true;
+        let q=assess_quality(&e);
+        assert_eq!(q["mapping_confidence"],0.0);
     }
 
     #[test]
