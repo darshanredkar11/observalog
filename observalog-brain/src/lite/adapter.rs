@@ -42,10 +42,10 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
     let tenant_id = text_field(root, &["tenant_id", "tenantId", "tenant.id", "tenant"]);
     record_source_path(root, &["tenant_id", "tenantId", "tenant.id", "tenant"], "tenant_id", &mut provenance);
 
-    let severity = find(root, &["severity_text", "severity", "level", "log.level", "levelname"])
+    let severity = find(root, &["severity_text", "severity", "severity_number", "level", "log.level", "levelname", "syslog_severity"])
         .and_then(|(v, path)| {
-            provenance.insert("severity".into(), json!({"source_path":path,"method":"normalized"}));
-            normalize_severity(v)
+            provenance.insert("severity".into(), json!({"source_path":path,"method":"source-specific-normalization"}));
+            normalize_severity_at(v, &path)
         });
     if severity.is_none() {
         quality_flags.push("severity_unknown".into());
@@ -336,6 +336,47 @@ fn parse_timestamp(value: &Value) -> Option<DateTime<Utc>> {
     }
 }
 
+fn normalize_severity_at(value: &Value, source_path: &str) -> Option<String> {
+    if let Value::Number(number) = value {
+        let number = number.as_i64()?;
+        let path = source_path.to_ascii_lowercase();
+        if path.ends_with("severity_number") {
+            return Some(match number {
+                1..=4 => "TRACE",
+                5..=8 => "DEBUG",
+                9..=12 => "INFO",
+                13..=16 => "WARN",
+                17..=20 => "ERROR",
+                21..=24 => "FATAL",
+                _ => return None,
+            }.into());
+        }
+        if path.ends_with(".level") || path == "$.level" || path.ends_with(".log.level") {
+            return Some(match number {
+                10 => "TRACE",
+                20 => "DEBUG",
+                30 => "INFO",
+                40 => "WARN",
+                50 => "ERROR",
+                60 => "FATAL",
+                _ => return None,
+            }.into());
+        }
+        if path.ends_with("syslog_severity") {
+            return Some(match number {
+                0..=2 => "FATAL",
+                3 => "ERROR",
+                4 => "WARN",
+                5..=6 => "INFO",
+                7 => "DEBUG",
+                _ => return None,
+            }.into());
+        }
+        return None;
+    }
+    normalize_severity(value)
+}
+
 fn normalize_severity(value: &Value) -> Option<String> {
     match value {
         Value::Number(n) => {
@@ -375,7 +416,7 @@ mod tests {
     fn adapts_pino_aliases_and_pino_numeric_level() {
         let event = adapt(r#"{"time":1795608000000,"level":40,"msg":"database timeout","service.name":"orders","trace_id":"t-1","err_code":"DB_TIMEOUT"}"#, &json!({"tag":"app"}), now());
         assert_eq!(event.service.as_deref(), Some("orders"));
-        assert_eq!(event.severity.as_deref(), Some("ERROR"));
+        assert_eq!(event.severity.as_deref(), Some("WARN"));
         assert_eq!(event.trace_id.as_deref(), Some("t-1"));
         assert_eq!(event.error_code.as_deref(), Some("DB_TIMEOUT"));
         assert!(!event.event_ts_inferred);
@@ -388,6 +429,14 @@ mod tests {
         assert_eq!(event.instance.as_deref(), Some("billing-2"));
         assert_eq!(event.trace_id, None);
         assert_eq!(event.severity.as_deref(), Some("WARN"));
+    }
+
+    #[test]
+    fn maps_otel_numeric_severity_without_confusing_it_with_pino() {
+        let event = adapt(r#"{"severity_number":18,"body":"upstream failed"}"#, &json!({}), now());
+        assert_eq!(event.severity.as_deref(), Some("ERROR"));
+        let pino = adapt(r#"{"level":50,"msg":"upstream failed"}"#, &json!({}), now());
+        assert_eq!(pino.severity.as_deref(), Some("ERROR"));
     }
 
     #[test]
