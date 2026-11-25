@@ -2,6 +2,8 @@
 
 **Delivery strategy:** small, independently verifiable phases. Keep `main` stable; each phase is implemented on a short-lived feature branch and merged through a reviewed PR.
 
+**Architecture invariant for every phase:** the product is a stream pipeline. Every event-processing gate independently consumes/processes/emits; no synchronous cross-gate round trips. Communication is asynchronous and bounded, with explicit backpressure and durable ACK semantics. Keep code simple and adaptive; pluggability is earned by real variation, not speculative frameworks.
+
 ## Phase 0 — Baseline and compatibility freeze
 
 **Goal:** Know exactly what must remain stable before changing transport or collection.
@@ -28,6 +30,7 @@ Work:
 - Add a Rust HTTP batch-ingestion endpoint to the existing brain (Axum is already present).
 - Configure Fluent Bit HTTP output with compression, retry and filesystem buffering.
 - Add bounded Tokio channels between intake, normalization, brain and persistence.
+- Verify each gate progresses independently; eliminate synchronous cross-stage request/response dependencies from event processing.
 - ACK only after durable batch acceptance; choose and test either committed TimescaleDB batch persistence or an append-only local journal with replay.
 - Add deterministic idempotency keys and duplicate-safe writes.
 - Keep existing parser and downstream contract path intact.
@@ -90,6 +93,7 @@ Work:
 - Separate I/O-bound tasks from CPU-heavy parsing/analysis; add a bounded CPU executor only when benchmarks justify it.
 - Batch DB writes; isolate DB stalls from ingestion while respecting the durable ACK boundary.
 - Add queue-depth, lag, retry, drop/quarantine, worker-failure and recovery metrics.
+- Audit each stage for unbounded buffering, synchronous cross-gate waits, speculative abstractions and unnecessary state; simplify before adding more machinery.
 
 Exit gate:
 - Load and soak tests meet the numeric throughput/latency envelope agreed from Phase 0.
