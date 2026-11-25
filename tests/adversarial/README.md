@@ -60,6 +60,28 @@ CI workflow: `.github/workflows/gate1-normalize.yml`.
 
 **Progress rule:** Gate 1 must pass its adversarial corpus and existing adapter regressions before Gate 2 is attacked. Findings are fixed within Gate 1's responsibility and added to the permanent corpus.
 
+## Gate 1 bombardment result
+
+Verified on native GitHub Actions (no Docker):
+
+- **18 adversarial Normalize tests passed**
+- **29 adapter regression tests passed**
+- CI run: https://github.com/darshanredkar11/observalog/actions/runs/45630770706
+
+Failures found and fixed during the bombardment:
+
+1. **Text message overwritten by a single KV token** — a long multilingual log containing `message=...` lost its full text body. KV parsing now does not overwrite the parsed message.
+2. **Nested noise could override record-root values** — field extraction now prioritizes valid root scalar aliases.
+3. **Nested exception details could be promoted as the log message** — recursive lookup is limited to recognized telemetry envelope containers.
+4. **Array-wrapped event objects could be treated as a single event** — arrays are no longer recursively promoted into event fields.
+5. **Invalid durations were accepted** — negative, NaN, infinity and out-of-range durations are not canonicalized; invalid duration is flagged.
+6. **Numeric timestamp extremes could saturate during conversion** — non-finite/out-of-range timestamp numbers fall back to collector observed time.
+7. **Unknown numeric severity values could become FATAL** — numeric severity mappings now use bounded known ranges; unknown values remain unknown.
+8. **Conflicting duration/severity aliases were not consistently reported** — alias conflict flags expanded.
+
+These failures are now part of the permanent regression corpus.
+
+
 ## What this does not prove
 
 This is not a mathematical proof or a fuzzing campaign of every byte sequence. It is a deterministic adversarial integration corpus. Future work:
