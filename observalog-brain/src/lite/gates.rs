@@ -186,8 +186,8 @@ fn normalize_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> GateFuture<'a> {
 
 fn source_identity_key(event: &CanonicalEvent, metadata: &Value) -> Option<String> {
     let source_id = event.source_event_id.as_ref()?;
-    let source = metadata.get("source_path").and_then(Value::as_str)
-        .or(event.service.as_deref())
+    let source = event.service.as_deref()
+        .or_else(|| metadata.get("source_path").and_then(Value::as_str))
         .or(event.source_name.as_deref())
         .unwrap_or("unknown-source");
     let instance = event.instance.as_deref().unwrap_or("unknown-instance");
