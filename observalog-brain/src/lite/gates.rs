@@ -5,15 +5,12 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use sqlx::{FromRow, PgPool};
 use tokio::time::{sleep, Duration as TokioDuration};
-use tracing::{debug, error, warn};
-
-const MAX_RETRIES: i32 = 10;
+use tracing::{debug, error};
 
 #[derive(Debug, FromRow)]
 struct EventRow {
     id: i64,
     event_ts: DateTime<Utc>,
-    observed_at: DateTime<Utc>,
     service: Option<String>,
     instance: Option<String>,
     version: Option<String>,
@@ -169,10 +166,10 @@ fn normalize_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query("UPDATE lite_gate_work SET state='done', lease_until=NULL, payload_id=$2, last_error=NULL WHERE id=$1")
-            .bind(work.work_id).bind(payload_id).execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO lite_gate_work (raw_id,gate_name,payload_id) VALUES ($1,'quality',$2) ON CONFLICT (raw_id,gate_name) DO NOTHING")
-            .bind(&work.raw_id).bind(payload_id).execute(&mut *tx).await?;
+        sqlx::query("UPDATE lite_gate_work SET state='done', lease_until=NULL, payload_id=$2, event_ts=$3, last_error=NULL WHERE id=$1")
+            .bind(work.work_id).bind(payload_id).bind(event.event_ts).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO lite_gate_work (raw_id,gate_name,payload_id,event_ts) VALUES ($1,'quality',$2,$3) ON CONFLICT (raw_id,gate_name) DO NOTHING")
+            .bind(&work.raw_id).bind(payload_id).bind(event.event_ts).execute(&mut *tx).await?;
 
         tx.commit().await?;
         Ok(())
@@ -192,7 +189,7 @@ fn quality_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dy
     Box::pin(async move {
         let payload_id = work.payload_id.context("quality work has no payload_id")?;
         let (canonical,): (Value,) = sqlx::query_as("SELECT canonical FROM lite_event_payload WHERE id=$1")
-            .bind(payload_id).fetch_one(pool).await?;
+            .bind(payload_id).bind(work.event_ts.context("gate work has no event timestamp")?).fetch_one(pool).await?;
         let event: CanonicalEvent = serde_json::from_value(canonical)?;
         let mut flags: Vec<String> = event.quality["flags"].as_array()
             .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
@@ -225,10 +222,10 @@ fn quality_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dy
             .bind(payload_id).bind(&quality).execute(&mut *tx).await?;
         sqlx::query("UPDATE lite_event_index SET quality_score=$2, quality_flags=$3 WHERE id=$1")
             .bind(payload_id).bind(score).bind(&quality["flags"]).execute(&mut *tx).await?;
-        sqlx::query("UPDATE lite_gate_work SET state='done', lease_until=NULL, last_error=NULL WHERE id=$1")
-            .bind(work.work_id).execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO lite_gate_work (raw_id,gate_name,payload_id) VALUES ($1,'correlate',$2) ON CONFLICT (raw_id,gate_name) DO NOTHING")
-            .bind(&work.raw_id).bind(payload_id).execute(&mut *tx).await?;
+        sqlx::query("UPDATE lite_gate_work SET state='done', lease_until=NULL, event_ts=$2, last_error=NULL WHERE id=$1")
+            .bind(work.work_id).bind(event.event_ts).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO lite_gate_work (raw_id,gate_name,payload_id,event_ts) VALUES ($1,'correlate',$2,$3) ON CONFLICT (raw_id,gate_name) DO NOTHING")
+            .bind(&work.raw_id).bind(payload_id).bind(event.event_ts).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(())
     })
@@ -238,9 +235,9 @@ fn correlate_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<
     Box::pin(async move {
         let payload_id = work.payload_id.context("correlation work has no payload_id")?;
         let current: EventRow = sqlx::query_as(
-            r#"SELECT id,event_ts,observed_at,service,instance,version,environment,tenant_id,
-                      severity,trace_id,request_id,business_entity_id,outcome,duration_ms,error_code
-               FROM lite_event_index WHERE id=$1 ORDER BY event_ts DESC LIMIT 1"#
+            r#"SELECT id,event_ts,service,instance,version,tenant_id,
+                      severity,trace_id,request_id,business_entity_id,outcome,error_code
+               FROM lite_event_index WHERE id=$1 AND event_ts=$2 LIMIT 1"#
         ).bind(payload_id).fetch_one(pool).await?;
 
         let trace = current.trace_id.clone().filter(|v| !v.starts_with("sys_"));
@@ -271,13 +268,13 @@ fn correlate_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<
             for other in matches {
                 let mut relations = Vec::new();
                 if current.trace_id.as_ref().is_some_and(|v| !v.starts_with("sys_") && Some(v) == other.trace_id.as_ref()) {
-                    relations.push(("same_trace", 0.99, json!({"trace_id":current.trace_id})));
+                    relations.push(("same_trace", 0.99, json!({"trace_id":&current.trace_id})));
                 }
                 if current.request_id.is_some() && current.request_id == other.request_id {
-                    relations.push(("same_request", 0.98, json!({"request_id":current.request_id})));
+                    relations.push(("same_request", 0.98, json!({"request_id":&current.request_id})));
                 }
                 if current.business_entity_id.is_some() && current.business_entity_id == other.business_entity_id {
-                    relations.push(("same_business_entity", 0.94, json!({"business_entity_id":current.business_entity_id})));
+                    relations.push(("same_business_entity", 0.94, json!({"business_entity_id":&current.business_entity_id})));
                 }
                 for (relation, confidence, evidence) in relations {
                     let (a,b) = if payload_id < other.id {(payload_id,other.id)} else {(other.id,payload_id)};
@@ -334,7 +331,7 @@ fn detect_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
         sqlx::query("UPDATE lite_gate_work SET state='done', lease_until=NULL, last_error=NULL WHERE id=$1")
             .bind(work.work_id).execute(&mut *tx).await?;
         if !signals.is_empty() {
-            sqlx::query("INSERT INTO lite_gate_work (raw_id,gate_name,payload_id) VALUES ($1,'reason',$2) ON CONFLICT (raw_id,gate_name) DO NOTHING")
+            sqlx::query("INSERT INTO lite_gate_work (raw_id,gate_name,payload_id,event_ts) VALUES ($1,'reason',$2,$3) ON CONFLICT (raw_id,gate_name) DO NOTHING")
                 .bind(&work.raw_id).bind(payload_id).execute(&mut *tx).await?;
         }
         tx.commit().await?;
@@ -360,7 +357,7 @@ fn reason_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
         let current: EventRow = sqlx::query_as(
             r#"SELECT id,event_ts,observed_at,service,instance,version,environment,tenant_id,
                       severity,trace_id,request_id,business_entity_id,outcome,duration_ms,error_code
-               FROM lite_event_index WHERE id=$1 ORDER BY event_ts DESC LIMIT 1"#
+               FROM lite_event_index WHERE id=$1 AND event_ts=$2 LIMIT 1"#
         ).bind(payload_id).fetch_one(pool).await?;
 
         let related: Vec<RelatedEvent> = sqlx::query_as(
@@ -370,10 +367,11 @@ fn reason_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
             FROM lite_event_index e
             LEFT JOIN lite_event_links l
               ON (l.event_a=$1 AND l.event_b=e.id) OR (l.event_b=$1 AND l.event_a=e.id)
-            WHERE e.id=$1 OR l.event_a IS NOT NULL
+            WHERE (e.id=$1 OR l.event_a IS NOT NULL)
+              AND e.event_ts BETWEEN $2 - INTERVAL '2 hours' AND $2 + INTERVAL '2 hours'
             ORDER BY e.event_ts ASC LIMIT 100
             "#
-        ).bind(payload_id).fetch_all(pool).await?;
+        ).bind(payload_id).bind(work.event_ts.context("gate work has no event timestamp")?).fetch_all(pool).await?;
 
         let cohorts: Vec<Cohort> = if let Some(service) = current.service.as_deref() {
             sqlx::query_as(
