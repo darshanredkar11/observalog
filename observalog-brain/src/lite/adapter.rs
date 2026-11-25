@@ -250,7 +250,9 @@ fn find_key<'a>(value: &'a Value, key: &str, path: &str) -> Option<(&'a Value, S
 
 fn text_field(value: &Value, aliases: &[&str]) -> Option<String> {
     for alias in aliases {
-        let (found, _) = find(value, &[*alias])?;
+        let Some((found, _)) = find(value, &[*alias]) else {
+            continue;
+        };
         let mapped = match found {
             Value::String(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
             Value::Number(n) => Some(n.to_string()),
