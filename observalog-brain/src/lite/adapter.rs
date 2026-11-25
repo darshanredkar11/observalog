@@ -9,6 +9,9 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
     let text_record = parsed.is_none().then(|| parse_text_record(raw));
     let mut provenance = Map::new();
     let mut quality_flags: Vec<String> = Vec::new();
+    if parsed.is_none() && (raw.trim_start().starts_with('{') || raw.trim_start().starts_with('[')) {
+        quality_flags.push("json_parse_failed_preserved_as_text".into());
+    }
 
     let source_name = string_field(source, &["source_name", "source", "tag"]);
     let root = parsed.as_ref().or(text_record.as_ref()).unwrap_or(source);
@@ -33,8 +36,11 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
     let version = text_field(root, &["service.version", "serviceVersion", "version", "build", "release"]);
     record_source_path(root, &["service.version", "serviceVersion", "version", "build", "release"], "version", &mut provenance);
     let environment = text_field(root, &["environment", "env", "deployment.environment", "deploymentEnvironment"]);
+    record_source_path(root, &["environment", "env", "deployment.environment", "deploymentEnvironment"], "environment", &mut provenance);
     let region = text_field(root, &["region", "cloud.region", "availability_zone", "zone"]);
+    record_source_path(root, &["region", "cloud.region", "availability_zone", "zone"], "region", &mut provenance);
     let tenant_id = text_field(root, &["tenant_id", "tenantId", "tenant.id", "tenant"]);
+    record_source_path(root, &["tenant_id", "tenantId", "tenant.id", "tenant"], "tenant_id", &mut provenance);
 
     let severity = find(root, &["severity_text", "severity", "level", "log.level", "levelname"])
         .and_then(|(v, path)| {
@@ -90,6 +96,18 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
     if message.is_none() { quality_flags.push("message_missing".into()); }
     if raw.len() > 256 * 1024 { quality_flags.push("large_record".into()); }
 
+    for (field, aliases) in [
+        ("service", &["service", "service.name", "serviceName", "app_name", "app", "logger", "application"][..]),
+        ("trace_id", &["trace_id", "traceId", "trace.id", "trace", "x_trace_id"][..]),
+        ("request_id", &["request_id", "requestId", "correlation_id", "correlationId", "correlationID", "x_request_id"][..]),
+        ("business_entity_id", &["business_entity_id", "entity_id", "order_id", "orderId", "payment_id", "document_id", "doc_id", "workflow_id", "transaction_id", "export_id"][..]),
+        ("severity", &["severity_text", "severity", "level", "log.level", "levelname"][..]),
+    ] {
+        if aliases_conflict(root, aliases) {
+            quality_flags.push(format!("conflicting_{field}_aliases"));
+        }
+    }
+
     let mut attributes = match root {
         Value::Object(map) => Value::Object(map.clone()),
         other => json!({"record":other}),
@@ -127,6 +145,20 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
     }
 }
 
+
+fn aliases_conflict(root: &Value, aliases: &[&str]) -> bool {
+    let mut values = Vec::new();
+    for alias in aliases {
+        if let Some((value, _)) = find(root, &[*alias]) {
+            if !value.is_null() && (value.is_string() || value.is_number() || value.is_boolean()) {
+                values.push(value.to_string());
+            }
+        }
+    }
+    values.sort();
+    values.dedup();
+    values.len() > 1
+}
 
 fn parse_text_record(raw: &str) -> Value {
     let tokens: Vec<&str> = raw.split_whitespace().collect();
