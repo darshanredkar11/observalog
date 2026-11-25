@@ -1,0 +1,19 @@
+name: Gate 1 Native Test
+
+"on":
+  push:
+  workflow_dispatch:
+
+jobs:
+  gate1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+      - name: Gate 1 adversarial corpus
+        working-directory: observalog-brain
+        run: cargo test gate1_adversarial_tests -- --nocapture
+      - name: Adapter regression suite
+        working-directory: observalog-brain
+        run: cargo test adapter
