@@ -620,3 +620,103 @@ mod tests {
         assert!(usable_trace_id("4bf92f3577b34da6a3ce929d0e0e4736"));
     }
 }
+
+#[cfg(test)]
+mod gate2_quality_tests {
+    use super::*;
+    use chrono::{DateTime, Utc};
+    use serde_json::json;
+
+    fn event() -> CanonicalEvent {
+        let ts=DateTime::parse_from_rfc3339("2026-11-25T12:00:00Z").unwrap().with_timezone(&Utc);
+        CanonicalEvent {
+            source_name: Some("test".into()), source_event_id: Some("evt-1".into()),
+            event_ts: ts, observed_at: ts, event_ts_inferred: false,
+            service: Some("payments".into()), instance: Some("pod-1".into()), version: Some("1.2".into()),
+            environment: Some("prod".into()), region: Some("west".into()), tenant_id: Some("t-1".into()),
+            severity: Some("INFO".into()), trace_id: Some("trace-12345678".into()), span_id: Some("span-1".into()),
+            parent_span_id: Some("parent-1".into()), request_id: Some("req-1".into()), business_entity_id: Some("order-1".into()),
+            message_id: Some("msg-1".into()), dependency_name: Some("db".into()), event_name: Some("order.created".into()),
+            message: Some("ok".into()), outcome: Some("success".into()), duration_ms: Some(5.0),
+            error_kind: None, error_code: None, error_message: None,
+            attributes: json!({}), provenance: json!({}),
+            quality: json!({"format":"json","flags":[],"mapping_confidence":0.25}),
+        }
+    }
+
+    #[test]
+    fn complete_mapping_has_perfect_score_and_no_missing_optional_flags() {
+        let q=assess_quality(&event());
+        assert_eq!(q["mapping_confidence"],1.0);
+        assert_eq!(q["flags"],json!([]));
+        assert_eq!(q["format"],"json");
+        assert_eq!(q["event_ts_inferred"],false);
+    }
+
+    #[test]
+    fn empty_event_has_zero_score_and_all_absence_flags() {
+        let mut e=event();
+        e.service=None; e.severity=None; e.message=None; e.event_ts_inferred=true;
+        e.trace_id=None; e.request_id=None; e.span_id=None; e.parent_span_id=None;
+        e.version=None; e.instance=None; e.outcome=None; e.duration_ms=None;
+        e.quality=json!({"format":"text","flags":[]});
+        let q=assess_quality(&e);
+        assert_eq!(q["mapping_confidence"],0.0);
+        for flag in ["span_id_missing","parent_span_missing","service_version_missing","service_instance_missing","outcome_unknown","duration_unknown"] {
+            assert!(q["flags"].as_array().unwrap().iter().any(|f|f==flag), "missing {flag}");
+        }
+    }
+
+    #[test]
+    fn duplicate_conflict_flags_do_not_penalize_score_repeatedly() {
+        let mut e=event();
+        e.quality=json!({"format":"json","flags":["conflicting_service_aliases","conflicting_service_aliases","conflicting_service_aliases"]});
+        let q=assess_quality(&e);
+        assert_eq!(q["mapping_confidence"],0.85);
+        assert_eq!(q["flags"],json!(["conflicting_service_aliases"]));
+    }
+
+    #[test]
+    fn distinct_conflicts_penalize_once_each_and_score_is_clamped() {
+        let mut e=event();
+        e.quality=json!({"format":"json","flags":["conflicting_service_aliases","conflicting_duration_aliases","conflicting_service_aliases"]});
+        let q=assess_quality(&e);
+        assert_eq!(q["mapping_confidence"],0.70);
+        assert_eq!(q["flags"],json!(["conflicting_duration_aliases","conflicting_service_aliases"]));
+        e.quality=json!({"flags":vec!["conflicting_alias".to_string();1000]});
+        assert_eq!(assess_quality(&e)["mapping_confidence"],0.0);
+    }
+
+    #[test]
+    fn malformed_quality_flags_are_ignored_and_missing_format_is_safe() {
+        let mut e=event();
+        e.quality=json!({"flags":["one",null,7,{},false,"one"]});
+        let q=assess_quality(&e);
+        assert_eq!(q["format"],Value::Null);
+        assert_eq!(q["flags"],json!(["one"]));
+        assert_eq!(q["mapping_confidence"],1.0);
+    }
+
+    #[test]
+    fn partial_mapping_score_counts_only_six_mapping_dimensions() {
+        let mut e=event();
+        e.trace_id=None;
+        e.quality=json!({"format":"json","flags":["conflicting_service_aliases","trace_id_missing"]});
+        let q=assess_quality(&e);
+        assert!((q["mapping_confidence"].as_f64().unwrap()-0.6833333333333333).abs()<1e-9);
+        assert!(q["flags"].as_array().unwrap().iter().any(|f|f=="trace_id_missing"));
+    }
+
+    #[test]
+    fn assessment_is_deterministic_and_flags_are_sorted() {
+        let mut e=event();
+        e.span_id=None; e.version=None; e.quality=json!({"format":"json","flags":["zeta","alpha","zeta"]});
+        let first=assess_quality(&e);
+        let second=assess_quality(&e);
+        assert_eq!(first,second);
+        let flags=first["flags"].as_array().unwrap();
+        let strings:Vec<_>=flags.iter().map(|v|v.as_str().unwrap()).collect();
+        let mut sorted=strings.clone(); sorted.sort();
+        assert_eq!(strings,sorted);
+    }
+}
