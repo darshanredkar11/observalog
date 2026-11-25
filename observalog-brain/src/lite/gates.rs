@@ -11,12 +11,15 @@ use tracing::{debug, error};
 struct EventRow {
     id: i64,
     event_ts: DateTime<Utc>,
+    observed_at: DateTime<Utc>,
     service: Option<String>,
     instance: Option<String>,
     version: Option<String>,
     tenant_id: Option<String>,
     severity: Option<String>,
     trace_id: Option<String>,
+    span_id: Option<String>,
+    parent_span_id: Option<String>,
     request_id: Option<String>,
     business_entity_id: Option<String>,
     outcome: Option<String>,
@@ -27,12 +30,15 @@ struct EventRow {
 struct RelatedEvent {
     id: i64,
     event_ts: DateTime<Utc>,
+    observed_at: DateTime<Utc>,
     service: Option<String>,
     instance: Option<String>,
     version: Option<String>,
     tenant_id: Option<String>,
     severity: Option<String>,
     trace_id: Option<String>,
+    span_id: Option<String>,
+    parent_span_id: Option<String>,
     request_id: Option<String>,
     business_entity_id: Option<String>,
     outcome: Option<String>,
@@ -235,8 +241,8 @@ fn correlate_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<
     Box::pin(async move {
         let payload_id = work.payload_id.context("correlation work has no payload_id")?;
         let current: EventRow = sqlx::query_as(
-            r#"SELECT id,event_ts,service,instance,version,tenant_id,
-                      severity,trace_id,request_id,business_entity_id,outcome,error_code
+            r#"SELECT id,event_ts,observed_at,service,instance,version,tenant_id,
+                      severity,trace_id,span_id,parent_span_id,request_id,business_entity_id,outcome,error_code
                FROM lite_event_index WHERE id=$1 AND event_ts=$2 LIMIT 1"#
         ).bind(payload_id).bind(work.event_ts.context("gate work has no event timestamp")?).fetch_one(pool).await?;
 
@@ -246,7 +252,7 @@ fn correlate_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<
         if trace.is_some() || request.is_some() || entity.is_some() {
             let matches: Vec<RelatedEvent> = sqlx::query_as(
                 r#"
-                SELECT id,event_ts,service,instance,version,tenant_id,severity,trace_id,request_id,
+                SELECT id,event_ts,observed_at,service,instance,version,tenant_id,severity,trace_id,span_id,parent_span_id,request_id,
                        business_entity_id,outcome,error_code
                 FROM lite_event_index
                 WHERE id <> $1
@@ -266,16 +272,59 @@ fn correlate_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<
             .fetch_all(pool).await?;
 
             for other in matches {
+                let request_conflict = current.request_id.as_ref().zip(other.request_id.as_ref())
+                    .is_some_and(|(left,right)| left != right);
+                let entity_conflict = current.business_entity_id.as_ref().zip(other.business_entity_id.as_ref())
+                    .is_some_and(|(left,right)| left != right);
+                let tenant_conflict = current.tenant_id.as_ref().zip(other.tenant_id.as_ref())
+                    .is_some_and(|(left,right)| left != right);
+                let same_trace = current.trace_id.as_ref().is_some_and(|v|
+                    !v.starts_with("sys_") && Some(v) == other.trace_id.as_ref());
+
+                if same_trace && (request_conflict || entity_conflict || tenant_conflict) {
+                    let evidence = json!({
+                        "trace_id":current.trace_id,
+                        "current_request_id":current.request_id,
+                        "other_request_id":other.request_id,
+                        "current_entity_id":current.business_entity_id,
+                        "other_entity_id":other.business_entity_id,
+                        "current_tenant_id":current.tenant_id,
+                        "other_tenant_id":other.tenant_id
+                    });
+                    sqlx::query(
+                        "INSERT INTO lite_signals (event_id,event_ts,signal_type,severity,evidence) VALUES ($1,$2,'trace_identity_conflict','high',$3) ON CONFLICT (event_id,signal_type) DO NOTHING"
+                    )
+                    .bind(payload_id).bind(current.event_ts).bind(evidence).execute(pool).await?;
+                }
+
                 let mut relations = Vec::new();
-                if current.trace_id.as_ref().is_some_and(|v| !v.starts_with("sys_") && Some(v) == other.trace_id.as_ref()) {
+                if same_trace && !request_conflict && !entity_conflict && !tenant_conflict {
                     relations.push(("same_trace", 0.99, json!({"trace_id":&current.trace_id})));
                 }
-                if current.request_id.is_some() && current.request_id == other.request_id {
+                if current.request_id.is_some() && current.request_id == other.request_id && !tenant_conflict {
                     relations.push(("same_request", 0.98, json!({"request_id":&current.request_id})));
                 }
-                if current.business_entity_id.is_some() && current.business_entity_id == other.business_entity_id {
+                if current.business_entity_id.is_some() && current.business_entity_id == other.business_entity_id && !tenant_conflict {
                     relations.push(("same_business_entity", 0.94, json!({"business_entity_id":&current.business_entity_id})));
                 }
+
+                let same_flow = (same_trace && !request_conflict && !entity_conflict && !tenant_conflict)
+                    || (current.request_id.is_some() && current.request_id == other.request_id && !tenant_conflict);
+                if same_flow {
+                    if current.parent_span_id.is_some() && current.parent_span_id == other.span_id {
+                        relations.push(("parent_child", 0.995, json!({
+                            "parent_event_id":other.id,"child_event_id":current.id,
+                            "parent_span_id":other.span_id,"child_span_id":current.span_id
+                        })));
+                    }
+                    if other.parent_span_id.is_some() && other.parent_span_id == current.span_id {
+                        relations.push(("parent_child", 0.995, json!({
+                            "parent_event_id":current.id,"child_event_id":other.id,
+                            "parent_span_id":current.span_id,"child_span_id":other.span_id
+                        })));
+                    }
+                }
+
                 for (relation, confidence, evidence) in relations {
                     let (a,b) = if payload_id < other.id {(payload_id,other.id)} else {(other.id,payload_id)};
                     sqlx::query(
@@ -362,8 +411,8 @@ fn reason_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
 
         let related: Vec<RelatedEvent> = sqlx::query_as(
             r#"
-            SELECT DISTINCT e.id,e.event_ts,e.service,e.instance,e.version,e.tenant_id,e.severity,
-                   e.trace_id,e.request_id,e.business_entity_id,e.outcome,e.error_code
+            SELECT DISTINCT e.id,e.event_ts,e.observed_at,e.service,e.instance,e.version,e.tenant_id,e.severity,
+                   e.trace_id,e.span_id,e.parent_span_id,e.request_id,e.business_entity_id,e.outcome,e.error_code
             FROM lite_event_index e
             LEFT JOIN lite_event_links l
               ON (l.event_a=$1 AND l.event_b=e.id) OR (l.event_b=$1 AND l.event_a=e.id)
@@ -429,9 +478,9 @@ fn reason_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
         }
 
         let fallback_event = RelatedEvent {
-            id:current.id,event_ts:current.event_ts,service:current.service.clone(),instance:current.instance.clone(),
+            id:current.id,event_ts:current.event_ts,observed_at:current.observed_at,service:current.service.clone(),instance:current.instance.clone(),
             version:current.version.clone(),tenant_id:current.tenant_id.clone(),severity:current.severity.clone(),
-            trace_id:current.trace_id.clone(),request_id:current.request_id.clone(),
+            trace_id:current.trace_id.clone(),span_id:current.span_id.clone(),parent_span_id:current.parent_span_id.clone(),request_id:current.request_id.clone(),
             business_entity_id:current.business_entity_id.clone(),outcome:current.outcome.clone(),error_code:current.error_code.clone()
         };
         let primary_error = related.iter()
