@@ -2,6 +2,8 @@
 
 The raw journal and `lite_gate_work` are durable. The in-process workers are only executors; work is not held only in memory. The brain can restart without losing accepted raw records or queued gate work.
 
+Admission is bounded by `LITE_MAX_INFLIGHT_GATE_WORK` (default 50,000 pending/leased items across all gates). The ingest transaction takes a short advisory lock while it checks capacity, preventing concurrent HTTP batches from collectively exceeding the configured bound. When full, ingest returns HTTP 503 and the transaction is rolled back; Fluent Bit's filesystem buffer retries after capacity becomes available. Batches over 10,000 records are rejected with HTTP 413.
+
 ## What an ingest 202 means
 
 `POST /ingest/raw` returns HTTP 202 only after both the raw record and its first `normalize` work item have committed in TimescaleDB. Fluent Bit may retry a request when it cannot confirm delivery. The raw source key is derived from collector source, file path and byte offset so the same file record is not accepted twice.
