@@ -6,7 +6,7 @@ concurrency:
 
 on:
   push:
-    branches: [lite/streaming-adapter]
+    branches: [lite/streaming-adapter, lite/adversarial-gate-testing]
     paths:
       - "docker-compose.yml"
       - "docker/fluent-bit/**"
