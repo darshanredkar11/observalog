@@ -8,7 +8,7 @@ services:
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U observalog -d observalog"]
       interval: 5s
@@ -31,7 +31,7 @@ services:
       timescaledb:
         condition: service_healthy
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:4000/health"]
       interval: 10s
@@ -53,7 +53,7 @@ services:
       brain:
         condition: service_healthy
     ports:
-      - "2020:2020"
+      - "127.0.0.1:2020:2020"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:2020/api/v1/health"]
       interval: 10s
