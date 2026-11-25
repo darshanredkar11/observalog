@@ -238,7 +238,7 @@ fn quality_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dy
         sqlx::query("UPDATE lite_event_payload SET quality=$2 WHERE id=$1")
             .bind(payload_id).bind(&quality).execute(&mut *tx).await?;
         sqlx::query("UPDATE lite_event_index SET quality_score=$2, quality_flags=$3 WHERE id=$1 AND event_ts=$4")
-            .bind(payload_id).bind(score).bind(&quality["flags"]).bind(event.event_ts).execute(&mut *tx).await?;
+            .bind(payload_id).bind(quality["mapping_confidence"].as_f64().unwrap_or(0.0)).bind(&quality["flags"]).bind(event.event_ts).execute(&mut *tx).await?;
         sqlx::query("UPDATE lite_gate_work SET state='done', lease_until=NULL, event_ts=$2, last_error=NULL WHERE id=$1")
             .bind(work.work_id).bind(event.event_ts).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO lite_gate_work (raw_id,gate_name,payload_id,event_ts) VALUES ($1,'correlate',$2,$3) ON CONFLICT (raw_id,gate_name) DO NOTHING")
