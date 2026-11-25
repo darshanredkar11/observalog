@@ -6,15 +6,13 @@ use serde_json::{Map, Value, json};
 /// duration is invented. The untouched source record is stored separately.
 pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> CanonicalEvent {
     let parsed = serde_json::from_str::<Value>(raw).ok();
+    let text_record = parsed.is_none().then(|| parse_text_record(raw));
     let mut provenance = Map::new();
     let mut quality_flags: Vec<String> = Vec::new();
 
     let source_name = string_field(source, &["source_name", "source", "tag"]);
-    let (root, format) = match parsed.as_ref() {
-        Some(v) if v.is_object() => (v, "json"),
-        Some(v) if v.is_array() => (v, "json_array"),
-        _ => (source, "text"),
-    };
+    let root = parsed.as_ref().or(text_record.as_ref()).unwrap_or(source);
+    let format = if parsed.is_some() { "json" } else { "text" };
 
     let timestamp = find(root, &["timestamp", "@timestamp", "time", "ts", "datetime", "date", "observed_timestamp"])
         .and_then(|(v, path)| {
@@ -48,22 +46,31 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
     }
 
     let trace_id = text_field(root, &["trace_id", "traceId", "trace.id", "trace", "x_trace_id"]);
+    record_source_path(root, &["trace_id", "traceId", "trace.id", "trace", "x_trace_id"], "trace_id", &mut provenance);
     let span_id = text_field(root, &["span_id", "spanId", "span.id", "span"]);
+    record_source_path(root, &["span_id", "spanId", "span.id", "span"], "span_id", &mut provenance);
     let parent_span_id = text_field(root, &["parent_span_id", "parentSpanId", "parent_span", "parentSpan"]);
+    record_source_path(root, &["parent_span_id", "parentSpanId", "parent_span", "parentSpan"], "parent_span_id", &mut provenance);
     let request_id = text_field(root, &["request_id", "requestId", "correlation_id", "correlationId", "correlationID", "x_request_id"]);
+    record_source_path(root, &["request_id", "requestId", "correlation_id", "correlationId", "correlationID", "x_request_id"], "request_id", &mut provenance);
     let business_entity_id = text_field(root, &[
         "business_entity_id", "entity_id", "order_id", "orderId", "payment_id",
         "document_id", "doc_id", "workflow_id", "transaction_id", "export_id"
     ]);
+    record_source_path(root, &["business_entity_id", "entity_id", "order_id", "orderId", "payment_id", "document_id", "doc_id", "workflow_id", "transaction_id", "export_id"], "business_entity_id", &mut provenance);
     let source_event_id = text_field(root, &["event_id", "eventId", "log_id", "record_id", "id"]);
+    record_source_path(root, &["event_id", "eventId", "log_id", "record_id", "id"], "source_event_id", &mut provenance);
     let event_name = text_field(root, &["event_name", "eventName", "event.name", "event", "operation"]);
+    record_source_path(root, &["event_name", "eventName", "event.name", "event", "operation"], "event_name", &mut provenance);
     let message = text_field(root, &["message", "msg", "body", "log", "log_message"])
         .or_else(|| {
             let t = raw.trim();
             (!t.is_empty()).then(|| t.to_string())
         });
+    record_source_path(root, &["message", "msg", "body", "log", "log_message"], "message", &mut provenance);
     let outcome = text_field(root, &["outcome", "result", "operation_status"])
         .map(|s| s.to_ascii_lowercase());
+    record_source_path(root, &["outcome", "result", "operation_status"], "outcome", &mut provenance);
     let duration_ms = find(root, &["duration_ms", "durationMs", "elapsed_ms", "latency_ms", "duration"])
         .and_then(|(v, path)| {
             provenance.insert("duration_ms".into(), json!({"source_path":path,"method":"numeric"}));
@@ -118,6 +125,68 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
         provenance: Value::Object(provenance),
         quality: json!({"format":format,"flags":quality_flags,"mapping_confidence":0.0}),
     }
+}
+
+
+fn parse_text_record(raw: &str) -> Value {
+    let tokens: Vec<&str> = raw.split_whitespace().collect();
+    let mut fields = Map::new();
+    if let Some(first) = tokens.first() {
+        if DateTime::parse_from_rfc3339(first).is_ok() {
+            fields.insert("timestamp".into(), json!(*first));
+        } else if tokens.len() > 1 {
+            let combined = format!("{}T{}Z", first, tokens[1]);
+            if DateTime::parse_from_rfc3339(&combined).is_ok() {
+                fields.insert("timestamp".into(), json!(combined));
+            }
+        }
+    }
+
+    for token in &tokens {
+        let candidate = token.trim_matches(|ch: char| matches!(ch, '[' | ']' | ':' | ',' ));
+        let value = Value::String(candidate.to_string());
+        if let Some(level) = normalize_severity(&value) {
+            fields.insert("severity".into(), json!(level));
+            break;
+        }
+    }
+
+    if let Some(start) = raw.find('[') {
+        if let Some(end) = raw[start + 1..].find(']') {
+            let scope = &raw[start + 1..start + 1 + end];
+            let service = scope.split(',').next().unwrap_or("").trim();
+            if !service.is_empty() && !service.chars().all(|c| c.is_ascii_digit()) {
+                fields.insert("service".into(), json!(service));
+            }
+        }
+    }
+    if !fields.contains_key("service") && tokens.len() >= 3 {
+        let candidate = tokens.get(2).copied().unwrap_or_default().trim_matches(|ch: char| ch == '[' || ch == ']');
+        if !candidate.is_empty() && !candidate.contains('=') && !candidate.starts_with('[') {
+            fields.insert("service".into(), json!(candidate));
+        }
+    }
+
+    let message_start = tokens.iter().position(|token| {
+        let candidate = token.trim_matches(|ch: char| matches!(ch, '[' | ']' | ':' | ','));
+        normalize_severity(&Value::String(candidate.to_string())).is_some()
+    });
+    let message = message_start
+        .map(|index| tokens[index + 1..].join(" "))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| raw.to_string());
+    fields.insert("message".into(), json!(message));
+
+    for token in &tokens {
+        if let Some((key, value)) = token.split_once('=') {
+            let key = key.trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_' && ch != '.');
+            let value = value.trim_matches(|ch: char| matches!(ch, '"' | '\'' | ',' | ']'));
+            if !key.is_empty() && !value.is_empty() {
+                fields.insert(key.into(), json!(value));
+            }
+        }
+    }
+    Value::Object(fields)
 }
 
 fn find<'a>(value: &'a Value, aliases: &[&str]) -> Option<(&'a Value, String)> {
@@ -269,5 +338,14 @@ mod tests {
         assert_eq!(event.duration_ms, Some(125.5));
         assert_eq!(event.error_kind.as_deref(), Some("Timeout"));
         assert_eq!(event.error_code.as_deref(), Some("UPSTREAM_TIMEOUT"));
+    }
+
+    #[test]
+    fn parses_spring_text_and_key_value_context() {
+        let event = adapt("2026-11-25T12:00:00Z ERROR [payments,payment-2] GatewayHandler : timeout trace_id=trace-1 order_id=order-2 error_code=GATEWAY_TIMEOUT", &json!({}), now());
+        assert_eq!(event.service.as_deref(), Some("payments"));
+        assert_eq!(event.severity.as_deref(), Some("ERROR"));
+        assert_eq!(event.trace_id.as_deref(), Some("trace-1"));
+        assert_eq!(event.business_entity_id.as_deref(), Some("order-2"));
     }
 }
