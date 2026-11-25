@@ -1,0 +1,35 @@
+name: Gate 3 Correlation Adversarial
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - lite/adversarial-gate-testing
+    paths:
+      - observalog-brain/src/lite/correlation.rs
+      - observalog-brain/src/lite/gates.rs
+      - observalog-brain/src/lite/model.rs
+      - observalog-brain/src/lite/queue.rs
+      - observalog-brain/src/lite/mod.rs
+      - .github/workflows/gate3-correlation.yml
+
+jobs:
+  correlation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Native Rust prerequisites
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+      - name: Build release
+        working-directory: observalog-brain
+        run: cargo build --release
+      - name: Run all Rust tests
+        working-directory: observalog-brain
+        run: cargo test
+      - name: Clippy
+        working-directory: observalog-brain
+        run: cargo clippy -- -D warnings

@@ -1,6 +1,6 @@
 use super::{adapter, model::CanonicalEvent, queue::{self, WorkItem}};
 use anyhow::{Context, Result};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::{Value, json};
 use sqlx::{FromRow, PgPool};
@@ -66,7 +66,7 @@ pub async fn run_quality(pool: PgPool) {
 }
 
 pub async fn run_correlation(pool: PgPool) {
-    run_loop(pool, "correlate", correlate_one).await;
+    super::correlation::run(pool).await;
 }
 
 pub async fn run_detection(pool: PgPool) {
@@ -223,12 +223,36 @@ fn assess_quality(event: &CanonicalEvent) -> Value {
     flags.dedup();
     let conflict_count = flags.iter().filter(|flag| flag.starts_with("conflicting_")).count();
     let score = (mapped as f64 / 6.0 - conflict_count as f64 * 0.15).clamp(0.0, 1.0);
+    let eligibility = |field: &str, present: bool, valid: bool| {
+        if !present {
+            "unavailable"
+        } else if !valid {
+            "invalid"
+        } else if flags.iter().any(|flag| flag.starts_with("conflicting_") && flag.contains(field)) {
+            "ambiguous"
+        } else {
+            "eligible"
+        }
+    };
+    let correlation_eligibility = json!({
+        "trace_id": eligibility(
+            "trace_id",
+            has_text(&event.trace_id),
+            event.trace_id.as_deref().is_some_and(super::correlation::usable_trace_id)
+        ),
+        "request_id": eligibility("request_id", has_text(&event.request_id), true),
+        "business_entity_id": eligibility("business_entity_id", has_text(&event.business_entity_id), true),
+        "message_id": eligibility("message_id", has_text(&event.message_id), true),
+        "span_id": eligibility("span_id", has_text(&event.span_id), true),
+        "parent_span_id": eligibility("parent_span_id", has_text(&event.parent_span_id), true)
+    });
     json!({
         "format": event.quality["format"],
         "flags": flags,
         "mapping_confidence": score,
         "event_ts_inferred": event.event_ts_inferred,
-        "mapping_confidence_type": "heuristic_mapping_completeness"
+        "mapping_confidence_type": "heuristic_mapping_completeness",
+        "correlation_eligibility": correlation_eligibility
     })
 }
 
@@ -249,117 +273,6 @@ fn quality_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dy
             .bind(work.work_id).bind(event.event_ts).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO lite_gate_work (raw_id,gate_name,payload_id,event_ts) VALUES ($1,'correlate',$2,$3) ON CONFLICT (raw_id,gate_name) DO NOTHING")
             .bind(&work.raw_id).bind(payload_id).bind(event.event_ts).execute(&mut *tx).await?;
-        tx.commit().await?;
-        Ok(())
-    })
-}
-
-fn correlate_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn std::future::Future<Output=Result<()>> + Send + 'a>> {
-    Box::pin(async move {
-        let payload_id = work.payload_id.context("correlation work has no payload_id")?;
-        let mut tx = pool.begin().await?;
-        let current: EventRow = sqlx::query_as(
-            r#"SELECT id,event_ts,observed_at,service,instance,version,tenant_id,
-                      severity,trace_id,span_id,parent_span_id,request_id,business_entity_id,outcome,error_code
-               FROM lite_event_index WHERE id=$1 AND event_ts=$2 LIMIT 1"#
-        ).bind(payload_id).bind(work.event_ts.context("gate work has no event timestamp")?).fetch_one(&mut *tx).await?;
-        let trace = current.trace_id.clone().filter(|v| usable_trace_id(v));
-        let request = current.request_id.clone();
-        let entity = current.business_entity_id.clone();
-        if trace.is_some() || request.is_some() || entity.is_some() {
-            let matches: Vec<RelatedEvent> = sqlx::query_as(
-                r#"
-                SELECT id,event_ts,observed_at,service,instance,version,tenant_id,severity,trace_id,span_id,parent_span_id,request_id,
-                       business_entity_id,outcome,error_code
-                FROM lite_event_index
-                WHERE id <> $1
-                  AND event_ts BETWEEN $2 AND $3
-                  AND (($4::text IS NOT NULL AND trace_id=$4)
-                    OR ($5::text IS NOT NULL AND request_id=$5)
-                    OR ($6::text IS NOT NULL AND business_entity_id=$6))
-                ORDER BY event_ts DESC LIMIT 100
-                "#
-            )
-            .bind(payload_id)
-            .bind(current.event_ts - Duration::hours(2))
-            .bind(current.event_ts + Duration::hours(2))
-            .bind(trace)
-            .bind(request)
-            .bind(entity)
-            .fetch_all(&mut *tx).await?;
-
-            for other in matches {
-                let request_conflict = current.request_id.as_ref().zip(other.request_id.as_ref())
-                    .is_some_and(|(left,right)| left != right);
-                let entity_conflict = current.business_entity_id.as_ref().zip(other.business_entity_id.as_ref())
-                    .is_some_and(|(left,right)| left != right);
-                let tenant_conflict = current.tenant_id.as_ref().zip(other.tenant_id.as_ref())
-                    .is_some_and(|(left,right)| left != right);
-                let same_trace = current.trace_id.as_ref().is_some_and(|v|
-                    usable_trace_id(v) && Some(v) == other.trace_id.as_ref());
-
-                if same_trace && (request_conflict || entity_conflict || tenant_conflict) {
-                    let evidence = json!({
-                        "trace_id":current.trace_id,
-                        "current_request_id":current.request_id,
-                        "other_request_id":other.request_id,
-                        "current_entity_id":current.business_entity_id,
-                        "other_entity_id":other.business_entity_id,
-                        "current_tenant_id":current.tenant_id,
-                        "other_tenant_id":other.tenant_id
-                    });
-                    sqlx::query(
-                        "INSERT INTO lite_signals (event_id,event_ts,signal_type,severity,evidence) VALUES ($1,$2,'trace_identity_conflict','high',$3) ON CONFLICT (event_id,signal_type) DO NOTHING"
-                    )
-                    .bind(payload_id).bind(current.event_ts).bind(evidence).execute(&mut *tx).await?;
-                }
-
-                let mut relations = Vec::new();
-                if same_trace && !request_conflict && !entity_conflict && !tenant_conflict {
-                    relations.push(("same_trace", 0.99, json!({"trace_id":&current.trace_id})));
-                }
-                if current.request_id.is_some() && current.request_id == other.request_id && !tenant_conflict {
-                    relations.push(("same_request", 0.98, json!({"request_id":&current.request_id})));
-                }
-                if current.business_entity_id.is_some() && current.business_entity_id == other.business_entity_id && !tenant_conflict {
-                    relations.push(("same_business_entity", 0.94, json!({"business_entity_id":&current.business_entity_id})));
-                }
-
-                let same_flow = (same_trace && !request_conflict && !entity_conflict && !tenant_conflict)
-                    || (current.request_id.is_some() && current.request_id == other.request_id && !tenant_conflict);
-                if same_flow {
-                    if current.parent_span_id.is_some() && current.parent_span_id == other.span_id {
-                        relations.push(("parent_child", 0.995, json!({
-                            "parent_event_id":other.id,"child_event_id":current.id,
-                            "parent_span_id":other.span_id,"child_span_id":current.span_id
-                        })));
-                    }
-                    if other.parent_span_id.is_some() && other.parent_span_id == current.span_id {
-                        relations.push(("parent_child", 0.995, json!({
-                            "parent_event_id":current.id,"child_event_id":other.id,
-                            "parent_span_id":current.span_id,"child_span_id":other.span_id
-                        })));
-                    }
-                }
-
-                for (relation, confidence, evidence) in relations {
-                    let (a,b) = if payload_id < other.id {(payload_id,other.id)} else {(other.id,payload_id)};
-                    sqlx::query(
-                        "INSERT INTO lite_event_links (event_a,event_b,relation_type,confidence,evidence) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING"
-                    )
-                    .bind(a).bind(b).bind(relation).bind(confidence).bind(evidence)
-                    .execute(&mut *tx).await?;
-                }
-            }
-        }
-
-        // Correlation edges/signals and the downstream cursor move together.
-        sqlx::query("UPDATE lite_gate_work SET state='done', lease_until=NULL, payload_id=$2, event_ts=$3, last_error=NULL WHERE id=$1")
-            .bind(work.work_id).bind(payload_id).bind(current.event_ts)
-            .execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO lite_gate_work (raw_id,gate_name,payload_id,event_ts) VALUES ($1,'detect',$2,$3) ON CONFLICT (raw_id,gate_name) DO NOTHING")
-            .bind(&work.raw_id).bind(payload_id).bind(current.event_ts)
-            .execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(())
     })
@@ -426,12 +339,6 @@ fn detect_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
         tx.commit().await?;
         Ok(())
     })
-}
-
-fn usable_trace_id(value: &str) -> bool {
-    // Short custom IDs are retained but too collision-prone to form strong
-    // cross-event correlations. Correlate custom systems through request/business keys.
-    !value.starts_with("sys_") && value.trim().len() >= 8
 }
 
 fn contains_retry_marker(value: &Value) -> bool {
@@ -614,20 +521,6 @@ fn classify_hypothesis(error_code: Option<&str>, service: Option<&str>, severity
         ("application_failure".into(),format!("{service} emitted a failure signal, but the root-cause category is not yet established."),0.48)
     } else {
         ("insufficient_evidence".into(),format!("A signal was emitted by {service}, but available fields do not support a specific cause."),0.25)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::usable_trace_id;
-
-    #[test]
-    fn short_or_system_trace_ids_are_not_usable_for_correlation() {
-        assert!(!usable_trace_id("A"));
-        assert!(!usable_trace_id("sys_generated_123456"));
-        assert!(!usable_trace_id("   "));
-        assert!(usable_trace_id("12345678"));
-        assert!(usable_trace_id("4bf92f3577b34da6a3ce929d0e0e4736"));
     }
 }
 
