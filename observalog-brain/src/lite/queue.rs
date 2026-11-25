@@ -10,6 +10,7 @@ pub struct WorkItem {
     pub raw_id: String,
     pub raw_text: String,
     pub source_metadata: Value,
+    pub received_at: DateTime<Utc>,
     pub payload_id: Option<i64>,
     pub event_ts: Option<DateTime<Utc>>,
     pub attempts: i32,
@@ -19,7 +20,7 @@ pub async fn claim(pool: &PgPool, gate: &str) -> Result<Option<WorkItem>> {
     let mut tx = pool.begin().await?;
     let item = sqlx::query_as::<_, WorkItem>(
         r#"
-        SELECT w.id AS work_id, r.id AS raw_id, r.raw_text, r.source_metadata,
+        SELECT w.id AS work_id, r.id AS raw_id, r.raw_text, r.source_metadata, r.received_at,
                w.payload_id, w.event_ts, w.attempts
         FROM lite_gate_work w
         JOIN lite_raw_records r ON r.id = w.raw_id
