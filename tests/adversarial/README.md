@@ -32,19 +32,33 @@ The generator randomizes record order deterministically from a seed. Repetitions
 
 The HTTP boundary is also tested for wrong token (401), empty body (400), and over-limit body (413). Ingestion requests are sent in parallel (four clients), then the durable queue must drain without dead or pending work.
 
-## Run locally
+## Gate 1 - Normalize (current focus)
+
+Gate 1 is tested independently. The current unit corpus covers:
+
+- Scalar, null, boolean, array and empty input
+- Missing/null/empty/wrong-type aliases
+- Top-level fields vs nested exception noise
+- Array-wrapped event objects
+- Invalid/negative/non-finite/extreme duration values
+- Conflicting duration aliases
+- Invalid and extreme timestamps
+- Unknown severity and ambiguous outcome
+- Incidental key=value phrases in ordinary prose
+- Malformed/truncated JSON preservation
+- Large multilingual records
+
+Gate 1 regression suite is run with native Rust only; no Docker and no database are required:
 
 ```bash
-cp .env.example .env
-# Replace LITE_INGEST_TOKEN with a local random secret (24+ bytes).
-set -a; . ./.env; set +a
-docker compose up -d timescaledb brain
-python3 tests/adversarial/generate_payloads.py --repetitions 10 --output /tmp/observalog-adversarial.jsonl
-python3 tests/adversarial/run_negative.py --payload-file /tmp/observalog-adversarial.jsonl
-docker compose down -v
+cd observalog-brain
+cargo test gate1_adversarial_tests -- --nocapture
+cargo test adapter
 ```
 
-CI: .github/workflows/lite-adversarial.yml builds the brain, starts a fresh TimescaleDB, generates the corpus, and executes the negative test.
+CI workflow: `.github/workflows/gate1-normalize.yml`.
+
+**Progress rule:** Gate 1 must pass its adversarial corpus and existing adapter regressions before Gate 2 is attacked. Findings are fixed within Gate 1's responsibility and added to the permanent corpus.
 
 ## What this does not prove
 
