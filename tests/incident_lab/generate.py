@@ -262,7 +262,7 @@ def make_clock_skew() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     event(e, "payments", -89920, "Payment authorization succeeded", trace=t, span="p-clock",
           parent="g-clock", request="req-clock1", outcome="success", duration=80,
           fmt="otel", attrs={"host_clock_offset_ms": -90000})
-    event(e, 140, "Order confirmed", trace=t, span="o-clock", parent="g-clock",
+    event(e, "orders", 140, "Order confirmed", trace=t, span="o-clock", parent="g-clock",
           request="req-clock1", outcome="success")
     return e, truth("telemetry_clock_skew", "payment host clock is approximately 90 seconds behind",
                     "payments host", expected=["span relationship is preserved despite timestamp inversion",
