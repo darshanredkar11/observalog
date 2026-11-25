@@ -301,16 +301,14 @@ fn find_key<'a>(value: &'a Value, key: &str, path: &str) -> Option<(&'a Value, S
                     return Some((cursor, source_path));
                 }
             }
-            for (child_key, child) in map {
-                if let Some(found) = find_key(child, key, &format!("{path}.{child_key}")) {
-                    return Some(found);
-                }
-            }
-        }
-        Value::Array(items) => {
-            for (index, child) in items.iter().enumerate() {
-                if let Some(found) = find_key(child, key, &format!("{path}[{index}]")) {
-                    return Some(found);
+            // Recurse only through known telemetry envelope containers. Arbitrary
+            // nested objects (especially error/exception payloads) are not fields
+            // of the log record, and arrays are not treated as event envelopes.
+            for child_key in ["resource", "attributes", "context", "metadata", "fields", "log", "data", "payload", "body"] {
+                if let Some(child) = map.get(child_key) {
+                    if let Some(found) = find_key(child, key, &format!("{path}.{child_key}")) {
+                        return Some(found);
+                    }
                 }
             }
         }
@@ -591,6 +589,26 @@ mod gate1_adversarial_tests {
     }
 
     #[test]
+    fn array_wrapped_records_are_not_promoted_to_single_event_fields() {
+        let raw=r#"[{"message":"fake event","service":"fake-service","trace_id":"fake-trace-12345678","duration_ms":200}]"#;
+        let event=adapt(raw,&json!({}),observed());
+        assert_eq!(event.service,None);
+        assert_eq!(event.trace_id,None);
+        assert_eq!(event.duration_ms,None);
+        assert_eq!(event.message.as_deref(),Some(raw));
+    }
+
+    #[test]
+    fn nested_exception_message_is_not_promoted_to_log_message() {
+        let raw=r#"{"error":{"type":"Timeout","code":"TIMEOUT","message":"exception detail only"}}"#;
+        let event=adapt(raw,&json!({}),observed());
+        assert_eq!(event.message.as_deref(),Some(raw));
+        assert_eq!(event.error_message.as_deref(),Some("exception detail only"));
+        assert_eq!(event.error_kind.as_deref(),Some("Timeout"));
+        assert_eq!(event.error_code.as_deref(),Some("TIMEOUT"));
+    }
+
+    #[test]
     fn nested_noise_does_not_override_top_level_canonical_fields() {
         let raw=r#"{"message":"top message","service":"payments","trace_id":"trace-top-12345678","duration_ms":12,"error":{"message":"nested error message","service":"fake-service","trace_id":"trace-fake-12345678","duration_ms":999}}"#;
         let event=adapt(raw,&json!({}),observed());
@@ -651,7 +669,7 @@ mod gate1_adversarial_tests {
     fn malformed_and_truncated_json_is_retained_as_text() {
         for raw in ["{", "{not-json}", r#"{"message":"unterminated}"#, r#"{"timestamp":NaN}"#, "[1,2,3"] {
             let event=adapt(raw,&json!({}),observed());
-            assert!(event.message.as_deref().unwrap_or_default().contains(raw.trim()) || event.message.is_some(), "raw={raw:?}");
+            assert_eq!(event.message.as_deref(), Some(raw.trim()), "raw={raw:?}");
             assert!(event.quality["flags"].as_array().unwrap().iter().any(|f|f=="json_parse_failed_preserved_as_text") || !raw.trim_start().starts_with('{'));
         }
     }
