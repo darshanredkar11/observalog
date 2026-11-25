@@ -8,6 +8,8 @@ COPY Cargo.toml ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release && rm -rf src
 
 COPY src ./src
+# Compile and run unit tests in the same dependency-cached builder before shipping.
+RUN cargo test --release
 RUN cargo build --release
 
 FROM debian:bookworm-slim
