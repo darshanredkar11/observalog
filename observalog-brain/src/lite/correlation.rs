@@ -19,6 +19,7 @@ const RESIDENT_TTL: StdDuration = StdDuration::from_secs(2 * 60 * 60);
 const MAX_RESIDENT_EVENTS: usize = 20_000;
 const MAX_EVENTS_PER_IDENTITY: usize = 256;
 const MAX_CANDIDATES_PER_EVENT: usize = 64;
+const MAX_ADJACENCY_EDGES_PER_EVENT: usize = 64;
 const RECOVERY_LIMIT: i64 = 20_000;
 const RECOVERY_EDGE_LIMIT: i64 = 50_000;
 
@@ -94,6 +95,9 @@ fn eligible(event: &CanonicalEvent, field: &str, value: Option<&String>) -> bool
     let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
         return false;
     };
+    if field == "trace_id" && !usable_trace_id(value) {
+        return false;
+    }
     match event.quality["correlation_eligibility"][field].as_str() {
         Some("eligible") => true,
         Some(_) => false,
@@ -357,21 +361,40 @@ impl CorrelationEngine {
         }
     }
 
+    fn add_adjacency(&mut self, left_id: i64, right_id: i64, relation_type: &str) {
+        let left_has = self.adjacency.get(&left_id).is_some_and(|edges| {
+            edges.iter().any(|(other, kind)| *other == right_id && kind == relation_type)
+        });
+        let right_has = self.adjacency.get(&right_id).is_some_and(|edges| {
+            edges.iter().any(|(other, kind)| *other == left_id && kind == relation_type)
+        });
+        let left_room = self.adjacency.get(&left_id)
+            .is_none_or(|edges| edges.len() < MAX_ADJACENCY_EDGES_PER_EVENT);
+        let right_room = self.adjacency.get(&right_id)
+            .is_none_or(|edges| edges.len() < MAX_ADJACENCY_EDGES_PER_EVENT);
+
+        if !left_has && left_room {
+            self.adjacency.entry(left_id).or_default()
+                .push((right_id, relation_type.to_string()));
+        }
+        if !right_has && right_room {
+            self.adjacency.entry(right_id).or_default()
+                .push((left_id, relation_type.to_string()));
+        }
+    }
+
     fn apply(&mut self, id: i64, event: CanonicalEvent, relationships: &[Relationship]) {
         self.insert(id, event);
         for relationship in relationships {
-            let relation = relationship.relation_type.to_string();
-            self.adjacency.entry(id).or_default().push((relationship.other_id, relation.clone()));
-            self.adjacency.entry(relationship.other_id).or_default().push((id, relation));
+            self.add_adjacency(id, relationship.other_id, relationship.relation_type);
         }
     }
 
     fn restore_edge(&mut self, edge: EdgeRow) {
-        if !self.nodes.contains_key(&edge.event_a) || !self.nodes.contains_key(&edge.event_b) { return; }
-        self.adjacency.entry(edge.event_a).or_default()
-            .push((edge.event_b, edge.relation_type.clone()));
-        self.adjacency.entry(edge.event_b).or_default()
-            .push((edge.event_a, edge.relation_type));
+        if !self.nodes.contains_key(&edge.event_a) || !self.nodes.contains_key(&edge.event_b) {
+            return;
+        }
+        self.add_adjacency(edge.event_a, edge.event_b, &edge.relation_type);
     }
 }
 
@@ -643,6 +666,15 @@ mod gate3_correlation_tests {
         let current = event(500, Some("trace-12345678"), None, None, None, None, None, None);
         assert!(engine.candidates(&current).len() <= MAX_CANDIDATES_PER_EVENT);
         assert!(engine.identity_index.values().all(|bucket| bucket.len() <= MAX_EVENTS_PER_IDENTITY));
+    }
+
+    #[test]
+    fn adjacency_degree_is_bounded() {
+        let mut engine = CorrelationEngine::default();
+        for other_id in 2..200 {
+            engine.add_adjacency(1, other_id, "same_trace");
+        }
+        assert!(engine.adjacency[&1].len() <= MAX_ADJACENCY_EDGES_PER_EVENT);
     }
 
     #[test]
