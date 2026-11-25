@@ -320,20 +320,33 @@ fn find_key<'a>(value: &'a Value, key: &str, path: &str) -> Option<(&'a Value, S
 }
 
 fn text_field(value: &Value, aliases: &[&str]) -> Option<String> {
+    // First scan all aliases at the record root. A valid root serviceName,
+    // requestId, etc. must outrank a nested envelope alias.
+    if let Value::Object(map) = value {
+        for alias in aliases {
+            if let Some(found) = map.get(*alias) {
+                if let Some(mapped) = map_text_value(found) {
+                    return Some(mapped);
+                }
+            }
+        }
+    }
+    // Then resolve nested recognized envelopes/dotted paths.
     for alias in aliases {
-        let Some((found, _)) = find(value, &[*alias]) else {
-            continue;
-        };
-        let mapped = match found {
-            Value::String(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
-            Value::Number(n) => Some(n.to_string()),
-            _ => None,
-        };
-        if mapped.is_some() {
-            return mapped;
+        let Some((found, _)) = find(value, &[*alias]) else { continue; };
+        if let Some(mapped) = map_text_value(found) {
+            return Some(mapped);
         }
     }
     None
+}
+
+fn map_text_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
 }
 
 fn string_field(value: &Value, aliases: &[&str]) -> Option<String> {
@@ -341,8 +354,25 @@ fn string_field(value: &Value, aliases: &[&str]) -> Option<String> {
 }
 
 fn record_source_path(root: &Value, aliases: &[&str], field: &str, provenance: &mut Map<String, Value>) {
-    if let Some((_, path)) = find(root, aliases) {
-        provenance.insert(field.into(), json!({"source_path":path,"method":"alias"}));
+    // Provenance must point to the actual scalar value selected by text_field,
+    // not a non-scalar container that happened to match an earlier alias.
+    if let Value::Object(map) = root {
+        for alias in aliases {
+            if let Some(value) = map.get(*alias) {
+                if map_text_value(value).is_some() {
+                    provenance.insert(field.into(), json!({"source_path":format!("$.{alias}"),"method":"alias"}));
+                    return;
+                }
+            }
+        }
+    }
+    for alias in aliases {
+        if let Some((value, path)) = find(root, &[*alias]) {
+            if map_text_value(value).is_some() {
+                provenance.insert(field.into(), json!({"source_path":path,"method":"alias"}));
+                return;
+            }
+        }
     }
 }
 
@@ -687,6 +717,14 @@ mod gate1_adversarial_tests {
         assert_eq!(event.business_entity_id.as_deref(),Some("ord-otel-123"));
         assert_eq!(event.severity.as_deref(),Some("ERROR"));
         assert_eq!(event.message.as_deref(),Some("db call failed"));
+    }
+
+    #[test]
+    fn valid_root_scalar_alias_outranks_nested_object_alias() {
+        let raw=r#"{"service":{"name":"nested-service"},"serviceName":"root-service","message":"probe"}"#;
+        let event=adapt(raw,&json!({}),observed());
+        assert_eq!(event.service.as_deref(),Some("root-service"));
+        assert_eq!(event.provenance["service"]["source_path"],"$.serviceName");
     }
 
     #[test]
