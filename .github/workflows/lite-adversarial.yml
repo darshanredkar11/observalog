@@ -3,11 +3,12 @@ name: Gate 1 - Normalize Adversarial Tests
 on:
   workflow_dispatch:
   push:
-    branches: [lite/adversarial-gate-testing]
+    branches:
+      - lite/adversarial-gate-testing
     paths:
-      - 'observalog-brain/src/lite/adapter.rs'
-      - 'observalog-brain/src/lite/model.rs'
-      - '.github/workflows/lite-adversarial.yml'
+      - observalog-brain/src/lite/adapter.rs
+      - observalog-brain/src/lite/model.rs
+      - .github/workflows/lite-adversarial.yml
 
 jobs:
   normalize-gate:
@@ -20,6 +21,6 @@ jobs:
       - name: Run Gate 1 adversarial unit corpus
         working-directory: observalog-brain
         run: cargo test gate1_adversarial_tests -- --nocapture
-      - name: Run all adapter regression tests
+      - name: Run adapter regression tests
         working-directory: observalog-brain
         run: cargo test adapter::
