@@ -23,6 +23,7 @@ Place application log files under `./var/logs/*.log`. On Linux Docker hosts, Flu
 | Variable | Default | Purpose |
 |---|---|---|
 | `POSTGRES_PASSWORD` | `observalog` | Local TimescaleDB password; change outside local development |
+| `LITE_INGEST_TOKEN` | required | Bearer token protecting raw ingest; minimum 24 bytes |
 | `DATABASE_URL` | Compose-generated | Brain database connection |
 | `LISTEN_ADDR` | `0.0.0.0:4000` | Brain HTTP listener |
 | `DB_MAX_CONNECTIONS` | `20` | SQL connection pool |
@@ -35,7 +36,7 @@ When the durable work limit is reached, raw ingest returns HTTP 503 and rolls ba
 
 `GET /health`
 
-`POST /ingest/raw` accepts a JSON object, JSON array, JSON Lines or plain text. Include an optional `X-ObservaLog-Source` header. A HTTP 202 response means both the raw event and initial work item have committed to TimescaleDB.
+`POST /ingest/raw` accepts a JSON object, JSON array, JSON Lines or plain text. Include an optional `X-ObservaLog-Source` header. A HTTP 202 response means both the raw event and initial work item have committed to TimescaleDB. Send `Authorization: Bearer $LITE_INGEST_TOKEN`; missing or invalid tokens receive HTTP 401.
 
 ## Recovery
 
