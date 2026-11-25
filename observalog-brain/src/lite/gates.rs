@@ -424,8 +424,8 @@ fn reason_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
     Box::pin(async move {
         let payload_id = work.payload_id.context("reasoning work has no payload_id")?;
         let current: EventRow = sqlx::query_as(
-            r#"SELECT id,event_ts,service,instance,version,tenant_id,
-                      severity,trace_id,request_id,business_entity_id,outcome,error_code
+            r#"SELECT id,event_ts,observed_at,service,instance,version,tenant_id,
+                      severity,trace_id,span_id,parent_span_id,request_id,business_entity_id,outcome,error_code
                FROM lite_event_index WHERE id=$1 AND event_ts=$2 LIMIT 1"#
         ).bind(payload_id).bind(work.event_ts.context("gate work has no event timestamp")?).fetch_one(pool).await?;
 
