@@ -64,12 +64,12 @@ Direct JSON Lines example:
 ```bash
 curl -X POST http://localhost:4000/ingest/raw \
   -H 'Content-Type: application/x-ndjson' \
-  -H "Authorization: Bearer $LITE_INGEST_TOKEN" \
+  -H "X-ObservaLog-Token: $LITE_INGEST_TOKEN" \
   -H 'X-ObservaLog-Source: checkout-service' \
   --data-binary '{"timestamp":"2026-11-25T12:00:00Z","level":"ERROR","service":"checkout","trace_id":"t-001","message":"Payment provider timed out","error_code":"UPSTREAM_TIMEOUT"}'
 ```
 
-Raw ingest requires `Authorization: Bearer $LITE_INGEST_TOKEN`. A successful response is HTTP 202 only after the raw record and normalization work item are durably committed. Requests are limited to 16 MB. The durable in-flight gate queue is bounded (default 50,000 pending/leased work items); when full, ingest returns HTTP 503 and Fluent Bit retries from its filesystem buffer.
+Raw ingest requires `X-ObservaLog-Token: $LITE_INGEST_TOKEN`. A successful response is HTTP 202 only after the raw record and normalization work item are durably committed. Requests are limited to 16 MB. The durable in-flight gate queue is bounded (default 50,000 pending/leased work items); when full, ingest returns HTTP 503 and Fluent Bit retries from its filesystem buffer.
 
 ## Brain gates
 
