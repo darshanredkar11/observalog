@@ -41,6 +41,8 @@ services:
 
   fluent-bit:
     image: fluent/fluent-bit:3.2
+    environment:
+      LITE_INGEST_TOKEN: ${LITE_INGEST_TOKEN:?set LITE_INGEST_TOKEN in .env}
     volumes:
       - ${FLUENT_BIT_CONFIG:-./docker/fluent-bit/fluent-bit.conf}:/fluent-bit/etc/fluent-bit.conf:ro
       - ./docker/fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
