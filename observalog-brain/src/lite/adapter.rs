@@ -230,12 +230,23 @@ fn parse_text_record(raw: &str) -> Value {
         .unwrap_or_else(|| raw.to_string());
     fields.insert("message".into(), json!(message));
 
-    for token in &tokens {
-        if let Some((key, value)) = token.split_once('=') {
-            let key = key.trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_' && ch != '.');
-            let value = value.trim_matches(|ch: char| matches!(ch, '"' | '\'' | ',' | ']'));
-            if !key.is_empty() && !value.is_empty() {
-                fields.insert(key.into(), json!(value));
+    // Do not promote incidental key=value text in ordinary prose into fields.
+    // Only parse KV tokens when the record has recognizable log structure
+    // (timestamp, early severity, bracketed scope) or is mostly KV tokens.
+    let kv_count = tokens.iter().filter(|token| token.contains('=')).count();
+    let severity_at_start = message_start.is_some_and(|index| index <= 3);
+    let structured_kv = fields.contains_key("timestamp")
+        || severity_at_start
+        || fields.contains_key("service")
+        || (!tokens.is_empty() && kv_count >= 2 && kv_count * 2 >= tokens.len());
+    if structured_kv {
+        for token in &tokens {
+            if let Some((key, value)) = token.split_once('=') {
+                let key = key.trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_' && ch != '.');
+                let value = value.trim_matches(|ch: char| matches!(ch, '"' | '\'' | ',' | ']'));
+                if !key.is_empty() && !value.is_empty() {
+                    fields.insert(key.into(), json!(value));
+                }
             }
         }
     }
