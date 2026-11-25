@@ -2,6 +2,7 @@
 """Exercise the full Lite ingestion/gate pipeline with adversarial raw payloads."""
 from __future__ import annotations
 import argparse, json, os, subprocess, sys, time, urllib.error, urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 def request(url, method="GET", body=None, token=None, headers=None, timeout=30):
@@ -39,16 +40,19 @@ def main():
 
     raw_before=int(psql("SELECT COUNT(*) FROM lite_raw_records"))
     accepted_total=0
-    batch=64
-    for offset in range(0,len(payloads),batch):
-        chunk=payloads[offset:offset+batch]
+    batch=48
+    batches=[payloads[offset:offset+batch] for offset in range(0,len(payloads),batch)]
+    def send_batch(index, chunk):
         body=json.dumps(chunk,ensure_ascii=False,separators=(",",":")).encode()
         code,response=request(args.base_url+"/ingest/raw","POST",body,token=args.token,timeout=90)
-        assert code==202, f"batch {offset//batch} expected 202 got {code}: {response[:300]!r}"
+        assert code==202, f"batch {index} expected 202 got {code}: {response[:300]!r}"
         result=json.loads(response)
-        accepted_total+=result.get("accepted",0)
         assert result.get("rejected",0)==0, result
-
+        return result.get("accepted",0)
+    # Concurrent client requests intentionally contend on durable admission and
+    # queue creation; the DB advisory lock must preserve a correct backlog.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        accepted_total=sum(pool.map(lambda pair: send_batch(*pair), enumerate(batches)))
     # Deliberate source-identity collision: same source event should collapse at
     # normalization, but both raw deliveries must remain durably auditable.
     duplicate_event=json.dumps({"event_id":"dup-event-777","service":"duplicate-test","level":"ERROR","message":"same event twice"})
