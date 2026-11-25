@@ -35,7 +35,7 @@ The three runtime services are:
 - `brain` — raw-ingest endpoint plus independent workers.
 - `fluent-bit` — tails container logs and `./var/logs/*.log`, writes file offsets to its persistent state volume, buffers output to filesystem and retries HTTP delivery.
 
-For local direct file ingestion, place logs under `./var/logs/`. The HTTP endpoint is `POST http://localhost:4000/ingest/raw`. Send JSON Lines, a JSON array/object, or plain text with `Authorization: Bearer $LITE_INGEST_TOKEN`. Optional header: `X-ObservaLog-Source`. The brain refuses to start without a token of at least 24 bytes; use a secret manager outside local development.
+For local direct file ingestion, place logs under `./var/logs/`. The HTTP endpoint is `POST http://localhost:4000/ingest/raw`. Send JSON Lines, a JSON array/object, or plain text with `X-ObservaLog-Token: $LITE_INGEST_TOKEN`. Optional header: `X-ObservaLog-Source`. The brain refuses to start without a token of at least 24 bytes; use a secret manager outside local development.
 
 `DATABASE_URL`, `LITE_INGEST_TOKEN`, `LISTEN_ADDR`, `DB_MAX_CONNECTIONS`, `LITE_SLOW_THRESHOLD_MS` and `LITE_MAX_INFLIGHT_GATE_WORK` configure the brain. The default in-flight durable work cap is 50,000; when it is reached the ingest endpoint returns HTTP 503 so Fluent Bit retries from its filesystem buffer. The default slow-operation threshold is 1000 ms.
 
