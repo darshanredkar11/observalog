@@ -14,14 +14,12 @@ struct EventRow {
     service: Option<String>,
     instance: Option<String>,
     version: Option<String>,
-    environment: Option<String>,
     tenant_id: Option<String>,
     severity: Option<String>,
     trace_id: Option<String>,
     request_id: Option<String>,
     business_entity_id: Option<String>,
     outcome: Option<String>,
-    duration_ms: Option<f64>,
     error_code: Option<String>,
 }
 
@@ -189,7 +187,7 @@ fn quality_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dy
     Box::pin(async move {
         let payload_id = work.payload_id.context("quality work has no payload_id")?;
         let (canonical,): (Value,) = sqlx::query_as("SELECT canonical FROM lite_event_payload WHERE id=$1")
-            .bind(payload_id).bind(work.event_ts.context("gate work has no event timestamp")?).fetch_one(pool).await?;
+            .bind(payload_id).fetch_one(pool).await?;
         let event: CanonicalEvent = serde_json::from_value(canonical)?;
         let mut flags: Vec<String> = event.quality["flags"].as_array()
             .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
@@ -220,8 +218,8 @@ fn quality_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dy
         let mut tx = pool.begin().await?;
         sqlx::query("UPDATE lite_event_payload SET quality=$2 WHERE id=$1")
             .bind(payload_id).bind(&quality).execute(&mut *tx).await?;
-        sqlx::query("UPDATE lite_event_index SET quality_score=$2, quality_flags=$3 WHERE id=$1")
-            .bind(payload_id).bind(score).bind(&quality["flags"]).execute(&mut *tx).await?;
+        sqlx::query("UPDATE lite_event_index SET quality_score=$2, quality_flags=$3 WHERE id=$1 AND event_ts=$4")
+            .bind(payload_id).bind(score).bind(&quality["flags"]).bind(event.event_ts).execute(&mut *tx).await?;
         sqlx::query("UPDATE lite_gate_work SET state='done', lease_until=NULL, event_ts=$2, last_error=NULL WHERE id=$1")
             .bind(work.work_id).bind(event.event_ts).execute(&mut *tx).await?;
         sqlx::query("INSERT INTO lite_gate_work (raw_id,gate_name,payload_id,event_ts) VALUES ($1,'correlate',$2,$3) ON CONFLICT (raw_id,gate_name) DO NOTHING")
@@ -238,7 +236,7 @@ fn correlate_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<
             r#"SELECT id,event_ts,service,instance,version,tenant_id,
                       severity,trace_id,request_id,business_entity_id,outcome,error_code
                FROM lite_event_index WHERE id=$1 AND event_ts=$2 LIMIT 1"#
-        ).bind(payload_id).fetch_one(pool).await?;
+        ).bind(payload_id).bind(work.event_ts.context("gate work has no event timestamp")?).fetch_one(pool).await?;
 
         let trace = current.trace_id.clone().filter(|v| !v.starts_with("sys_"));
         let request = current.request_id.clone();
@@ -328,11 +326,11 @@ fn detect_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
             .bind(payload_id).bind(event.event_ts).bind(kind).bind(level).bind(evidence)
             .execute(&mut *tx).await?;
         }
-        sqlx::query("UPDATE lite_gate_work SET state='done', lease_until=NULL, last_error=NULL WHERE id=$1")
-            .bind(work.work_id).execute(&mut *tx).await?;
+        sqlx::query("UPDATE lite_gate_work SET state='done', lease_until=NULL, event_ts=$2, last_error=NULL WHERE id=$1")
+            .bind(work.work_id).bind(event.event_ts).execute(&mut *tx).await?;
         if !signals.is_empty() {
             sqlx::query("INSERT INTO lite_gate_work (raw_id,gate_name,payload_id,event_ts) VALUES ($1,'reason',$2,$3) ON CONFLICT (raw_id,gate_name) DO NOTHING")
-                .bind(&work.raw_id).bind(payload_id).execute(&mut *tx).await?;
+                .bind(&work.raw_id).bind(payload_id).bind(event.event_ts).execute(&mut *tx).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -355,10 +353,10 @@ fn reason_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
     Box::pin(async move {
         let payload_id = work.payload_id.context("reasoning work has no payload_id")?;
         let current: EventRow = sqlx::query_as(
-            r#"SELECT id,event_ts,observed_at,service,instance,version,environment,tenant_id,
-                      severity,trace_id,request_id,business_entity_id,outcome,duration_ms,error_code
+            r#"SELECT id,event_ts,service,instance,version,tenant_id,
+                      severity,trace_id,request_id,business_entity_id,outcome,error_code
                FROM lite_event_index WHERE id=$1 AND event_ts=$2 LIMIT 1"#
-        ).bind(payload_id).fetch_one(pool).await?;
+        ).bind(payload_id).bind(work.event_ts.context("gate work has no event timestamp")?).fetch_one(pool).await?;
 
         let related: Vec<RelatedEvent> = sqlx::query_as(
             r#"
@@ -428,15 +426,16 @@ fn reason_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
             }
         }
 
+        let fallback_event = RelatedEvent {
+            id:current.id,event_ts:current.event_ts,service:current.service.clone(),instance:current.instance.clone(),
+            version:current.version.clone(),tenant_id:current.tenant_id.clone(),severity:current.severity.clone(),
+            trace_id:current.trace_id.clone(),request_id:current.request_id.clone(),
+            business_entity_id:current.business_entity_id.clone(),outcome:current.outcome.clone(),error_code:current.error_code.clone()
+        };
         let primary_error = related.iter()
             .filter(|e| matches!(e.severity.as_deref(),Some("ERROR"|"FATAL")) || e.outcome.as_deref()==Some("failure"))
             .min_by_key(|e| e.event_ts)
-            .unwrap_or_else(|| related.first().unwrap_or(&RelatedEvent {
-                id:current.id,event_ts:current.event_ts,service:current.service.clone(),instance:current.instance.clone(),
-                version:current.version.clone(),tenant_id:current.tenant_id.clone(),severity:current.severity.clone(),
-                trace_id:current.trace_id.clone(),request_id:current.request_id.clone(),
-                business_entity_id:current.business_entity_id.clone(),outcome:current.outcome.clone(),error_code:current.error_code.clone()
-            }));
+            .unwrap_or_else(|| related.first().unwrap_or(&fallback_event));
         let evidence_ids: Vec<i64> = related.iter().map(|e| e.id).collect();
         let mut services: Vec<String> = related.iter().filter_map(|e| e.service.clone()).collect();
         if let Some(service) = current.service.clone() { services.push(service); }
