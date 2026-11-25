@@ -677,6 +677,78 @@ mod gate1_adversarial_tests {
     }
 
     #[test]
+    fn structured_otel_resource_and_attribute_fields_still_map() {
+        let raw=r#"{"resource":{"service":{"name":"billing"},"attributes":{"host.name":"bill-3"}},"attributes":{"request.id":"req-otel-123","event.id":"evt-otel-123","order.id":"ord-otel-123"},"severity_number":18,"body":"db call failed"}"#;
+        let event=adapt(raw,&json!({}),observed());
+        assert_eq!(event.service.as_deref(),Some("billing"));
+        assert_eq!(event.instance.as_deref(),Some("bill-3"));
+        assert_eq!(event.request_id.as_deref(),Some("req-otel-123"));
+        assert_eq!(event.source_event_id.as_deref(),Some("evt-otel-123"));
+        assert_eq!(event.business_entity_id.as_deref(),Some("ord-otel-123"));
+        assert_eq!(event.severity.as_deref(),Some("ERROR"));
+        assert_eq!(event.message.as_deref(),Some("db call failed"));
+    }
+
+    #[test]
+    fn root_alias_precedence_is_stable_and_conflicts_are_reported() {
+        let raw=r#"{"service":"primary","serviceName":"alternate","level":"ERROR","severity_text":"WARN","duration_ms":25,"latency_ms":30}"#;
+        let event=adapt(raw,&json!({}),observed());
+        assert_eq!(event.service.as_deref(),Some("primary"));
+        assert_eq!(event.severity.as_deref(),Some("WARN"));
+        assert_eq!(event.duration_ms,Some(25.0));
+        let flags=event.quality["flags"].as_array().unwrap();
+        assert!(flags.iter().any(|f|f=="conflicting_service_aliases"));
+        assert!(flags.iter().any(|f|f=="conflicting_severity_aliases"));
+        assert!(flags.iter().any(|f|f=="conflicting_duration_aliases"));
+    }
+
+    #[test]
+    fn recognized_numeric_severity_boundaries_are_source_specific() {
+        for (source,expected) in [
+            (r#"{"level":10}"#,"TRACE"),
+            (r#"{"level":20}"#,"DEBUG"),
+            (r#"{"level":30}"#,"INFO"),
+            (r#"{"level":40}"#,"WARN"),
+            (r#"{"level":50}"#,"ERROR"),
+            (r#"{"level":60}"#,"FATAL"),
+        ] {
+            let event=adapt(source,&json!({}),observed());
+            assert_eq!(event.severity.as_deref(),Some(expected),"source={source}");
+        }
+        for source in [r#"{"level":-1}"#,r#"{"level":999}"#,r#"{"severity":99}"#] {
+            let event=adapt(source,&json!({}),observed());
+            assert_eq!(event.severity,None,"source={source}");
+        }
+    }
+
+    #[test]
+    fn valid_zero_and_fractional_durations_are_retained() {
+        for (raw,expected) in [
+            (r#"{"duration_ms":0}"#,0.0),
+            (r#"{"duration_ms":0.25}"#,0.25),
+            (r#"{"duration_ms":"125.75"}"#,125.75),
+        ] {
+            let event=adapt(raw,&json!({}),observed());
+            assert_eq!(event.duration_ms,Some(expected),"raw={raw}");
+        }
+    }
+
+    #[test]
+    fn structured_text_and_dense_kv_text_parse_but_prose_does_not() {
+        let spring="2026-11-25T12:00:00Z ERROR [payments,payment-2] Handler : timeout trace_id=trace-abcdef request_id=req-123";
+        let event=adapt(spring,&json!({}),observed());
+        assert_eq!(event.service.as_deref(),Some("payments"));
+        assert_eq!(event.severity.as_deref(),Some("ERROR"));
+        assert_eq!(event.trace_id.as_deref(),Some("trace-abcdef"));
+        assert_eq!(event.request_id.as_deref(),Some("req-123"));
+        let kv="service=orders level=ERROR trace_id=trace-abcdef message=failed";
+        let event=adapt(kv,&json!({}),observed());
+        assert_eq!(event.service.as_deref(),Some("orders"));
+        assert_eq!(event.severity.as_deref(),Some("ERROR"));
+        assert_eq!(event.trace_id.as_deref(),Some("trace-abcdef"));
+    }
+
+    #[test]
     fn long_and_multilingual_records_are_preserved_without_panics() {
         let raw=format!("ERROR service=payments message={} हिन्दी मराठी 日本語 العربية 🚨", "x".repeat(270_000));
         let event=adapt(&raw,&json!({"source_name":"adversarial"}),observed());
