@@ -60,7 +60,7 @@ The system must work whether the namespace contains one service or many services
 
 ## 5. User experience
 
-1. User starts the ObservaLog control plane with \`docker compose up -d\`.
+1. User starts the ObservaLog control plane with `docker compose up -d`.
 2. User chooses **Connect Kubernetes namespace**.
 3. ObservaLog validates the cluster and namespace permissions.
 4. ObservaLog installs or updates the managed Fluent Bit DaemonSet and namespace-scoped configuration.
@@ -72,7 +72,7 @@ No per-service parser configuration should be required for common JSON, plain-te
 
 ## 6. Target architecture
 
-\`\`\`text
+```text
 Kubernetes namespace
   workloads -> pods -> containers -> node log files
                                   |
@@ -94,7 +94,7 @@ Kubernetes namespace
                          /              \
                  TimescaleDB         live findings
                                       WebSocket/UI
-\`\`\`
+```
 
 ### Component responsibilities
 
@@ -139,7 +139,7 @@ A compatibility spike must confirm the exact fixed-header sentinel strategy agai
 ### Concurrency model
 
 - One Rust process; no internal microservice mesh.
-- Tokio bounded \`mpsc\` channels between pipeline stages.
+- Tokio bounded `mpsc` channels between pipeline stages.
 - One logical owner for each state partition; route related events consistently to that owner.
 - Immutable event data is passed between stages.
 - No global mutable issue map and no shared lock on the normal event hot path.
@@ -175,13 +175,13 @@ The target control-plane deployment is one Compose project:
 
 | Service | Target role | Decision |
 |---|---|---|
-| \`brain\` | One Rust process: HTTP ingestion, normalizer, existing analysis, WebSocket | Keep |
-| \`timescaledb\` | Existing durable storage | Keep |
-| \`valkey\` | Existing gap-grace behavior | Keep initially; reassess after compatibility tests |
-| \`fluent-bit\` | Optional local Docker log collector profile | Keep only for local/demo input; Kubernetes uses managed DaemonSet |
-| \`kafka\` / \`kafka-init\` | Current transport | Remove only after direct HTTP delivery/recovery tests pass |
+| `brain` | One Rust process: HTTP ingestion, normalizer, existing analysis, WebSocket | Keep |
+| `timescaledb` | Existing durable storage | Keep |
+| `valkey` | Existing gap-grace behavior | Keep initially; reassess after compatibility tests |
+| `fluent-bit` | Optional local Docker log collector profile | Keep only for local/demo input; Kubernetes uses managed DaemonSet |
+| `kafka` / `kafka-init` | Current transport | Remove only after direct HTTP delivery/recovery tests pass |
 
-Target operator command for the control plane: \`docker compose up -d\`.
+Target operator command for the control plane: `docker compose up -d`.
 
 No separate Kafka, Zookeeper, GraphDB, Flink, Redis replacement, or custom broker is introduced. The Kubernetes collector is provisioned automatically as part of namespace connection, not manually configured service by service.
 
@@ -222,7 +222,7 @@ No separate Kafka, Zookeeper, GraphDB, Flink, Redis replacement, or custom broke
 2. **No-Kafka durability:** Fluent Bit disk buffering plus HTTP retries is insufficient if the brain acknowledges before durable acceptance. The ACK/journal/batch-write spike is a release gate.
 3. **V1 header semantics:** Fixed-width trace/service/level fields were designed for contract-emitting applications. Placeholder/provenance behavior must be verified so generic logs do not create false trace or gap analysis.
 4. **Current collector filter:** The existing Fluent Bit configuration filters only contract-shaped lines. Generic log intake must remove that filter and retain arbitrary records.
-5. **Current local path:** The current Compose collector tails Docker's \`/var/lib/docker/containers\`; Kubernetes requires node-level \`/var/log/containers\` and runtime-aware parsing.
+5. **Current local path:** The current Compose collector tails Docker's `/var/lib/docker/containers`; Kubernetes requires node-level `/var/log/containers` and runtime-aware parsing.
 6. **PII/secrets:** Raw logs may contain credentials or personal data. Redaction, access control and retention need explicit defaults before production rollout.
 
 ## 12. Success definition
