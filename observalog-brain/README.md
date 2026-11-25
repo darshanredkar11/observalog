@@ -7,7 +7,7 @@ Rust runtime for raw-log ingestion and streaming analysis. It accepts heterogene
 | Variable | Required | Default | Purpose |
 |---|---:|---|---|
 | `DATABASE_URL` | yes | — | TimescaleDB connection string |
-| `LITE_INGEST_TOKEN` | yes | — | Bearer token required by `POST /ingest/raw` (minimum 24 bytes) |
+| `LITE_INGEST_TOKEN` | yes | — | Shared secret required by `POST /ingest/raw`, sent in `X-ObservaLog-Token` (minimum 24 bytes) |
 | `LISTEN_ADDR` | no | `0.0.0.0:4000` | HTTP bind address |
 | `DB_MAX_CONNECTIONS` | no | `20` | SQL connection pool size |
 | `LITE_SLOW_THRESHOLD_MS` | no | `1000` | Slow-operation signal threshold |
