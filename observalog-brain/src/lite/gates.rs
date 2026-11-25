@@ -176,11 +176,12 @@ fn normalize_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<
 
 fn source_identity_key(event: &CanonicalEvent, metadata: &Value) -> Option<String> {
     let source_id = event.source_event_id.as_ref()?;
-    let source = event.source_name.as_deref()
-        .or_else(|| metadata.get("source_path").and_then(Value::as_str))
+    let source = metadata.get("source_path").and_then(Value::as_str)
         .or_else(|| event.service.as_deref())
+        .or_else(|| event.source_name.as_deref())
         .unwrap_or("unknown-source");
-    Some(format!("{source}:{source_id}"))
+    let instance = event.instance.as_deref().unwrap_or("unknown-instance");
+    Some(format!("{source}:{instance}:{source_id}"))
 }
 
 fn quality_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn std::future::Future<Output=Result<()>> + Send + 'a>> {
