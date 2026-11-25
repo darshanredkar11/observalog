@@ -197,38 +197,42 @@ fn source_identity_key(event: &CanonicalEvent, metadata: &Value) -> Option<Strin
     Some(format!("{source}:{service}:{instance}:{source_id}"))
 }
 
+fn assess_quality(event: &CanonicalEvent) -> Value {
+    let mut flags: Vec<String> = event.quality["flags"].as_array()
+        .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .unwrap_or_default();
+
+    if event.span_id.is_none() { flags.push("span_id_missing".into()); }
+    if event.parent_span_id.is_none() { flags.push("parent_span_missing".into()); }
+    if event.version.is_none() { flags.push("service_version_missing".into()); }
+    if event.instance.is_none() { flags.push("service_instance_missing".into()); }
+    if event.outcome.is_none() { flags.push("outcome_unknown".into()); }
+    if event.duration_ms.is_none() { flags.push("duration_unknown".into()); }
+
+    let mapped = [
+        event.service.is_some(), event.severity.is_some(), event.message.is_some(),
+        !event.event_ts_inferred, event.trace_id.is_some(), event.request_id.is_some(),
+    ].into_iter().filter(|present| *present).count();
+    let conflict_count = flags.iter().filter(|flag| flag.starts_with("conflicting_")).count();
+    let score = (mapped as f64 / 6.0 - conflict_count as f64 * 0.15).clamp(0.0, 1.0);
+    flags.sort();
+    flags.dedup();
+    json!({
+        "format": event.quality["format"],
+        "flags": flags,
+        "mapping_confidence": score,
+        "event_ts_inferred": event.event_ts_inferred,
+        "source_fields_preserved": true
+    })
+}
+
 fn quality_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn std::future::Future<Output=Result<()>> + Send + 'a>> {
     Box::pin(async move {
         let payload_id = work.payload_id.context("quality work has no payload_id")?;
         let (canonical,): (Value,) = sqlx::query_as("SELECT canonical FROM lite_event_payload WHERE id=$1")
             .bind(payload_id).fetch_one(pool).await?;
         let event: CanonicalEvent = serde_json::from_value(canonical)?;
-        let mut flags: Vec<String> = event.quality["flags"].as_array()
-            .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
-            .unwrap_or_default();
-
-        if event.span_id.is_none() { flags.push("span_id_missing".into()); }
-        if event.parent_span_id.is_none() { flags.push("parent_span_missing".into()); }
-        if event.version.is_none() { flags.push("service_version_missing".into()); }
-        if event.instance.is_none() { flags.push("service_instance_missing".into()); }
-        if event.outcome.is_none() { flags.push("outcome_unknown".into()); }
-        if event.duration_ms.is_none() { flags.push("duration_unknown".into()); }
-
-        let mapped = [
-            event.service.is_some(), event.severity.is_some(), event.message.is_some(),
-            !event.event_ts_inferred, event.trace_id.is_some(), event.request_id.is_some(),
-        ].into_iter().filter(|present| *present).count();
-        let conflict_count = flags.iter().filter(|flag| flag.starts_with("conflicting_")).count();
-        let score = (mapped as f64 / 6.0 - conflict_count as f64 * 0.15).clamp(0.0, 1.0);
-        flags.sort();
-        flags.dedup();
-        let quality = json!({
-            "format": event.quality["format"],
-            "flags": flags,
-            "mapping_confidence": score,
-            "event_ts_inferred": event.event_ts_inferred,
-            "source_fields_preserved": true
-        });
+        let quality = assess_quality(&event);
 
         let mut tx = pool.begin().await?;
         sqlx::query("UPDATE lite_event_payload SET quality=$2 WHERE id=$1")
