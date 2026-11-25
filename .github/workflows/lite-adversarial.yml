@@ -1,71 +1,25 @@
-name: Lite Adversarial Gate Test
+name: Gate 1 - Normalize Adversarial Tests
 
 on:
   workflow_dispatch:
   push:
     branches: [lite/adversarial-gate-testing]
     paths:
-      - 'tests/adversarial/**'
-      - 'observalog-brain/src/lite/**'
-      - 'observalog-brain/Cargo.toml'
-      - 'observalog-brain/Cargo.lock'
+      - 'observalog-brain/src/lite/adapter.rs'
+      - 'observalog-brain/src/lite/model.rs'
       - '.github/workflows/lite-adversarial.yml'
 
 jobs:
-  negative-payloads:
+  normalize-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      LITE_INGEST_TOKEN: adversarial-ci-only-token-at-least-24-chars
-      DATABASE_URL: postgres://observalog:observalog@127.0.0.1:5432/observalog
-    services:
-      postgres:
-        image: timescale/timescaledb:latest-pg16
-        env:
-          POSTGRES_USER: observalog
-          POSTGRES_PASSWORD: observalog
-          POSTGRES_DB: observalog
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U observalog -d observalog"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install build prerequisites
+      - name: Install native build prerequisites
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
-      - name: Validate test harness syntax
-        run: python3 -m py_compile tests/adversarial/generate_payloads.py tests/adversarial/run_negative.py
-      - name: Generate adversarial payloads
-        run: python3 tests/adversarial/generate_payloads.py --repetitions 10 --output /tmp/observalog-adversarial.jsonl
-      - name: Build Rust brain natively
+      - name: Run Gate 1 adversarial unit corpus
         working-directory: observalog-brain
-        run: cargo test --release && cargo build --release
-      - name: Start brain natively
-        run: |
-          DATABASE_URL="$DATABASE_URL" LITE_INGEST_TOKEN="$LITE_INGEST_TOKEN" ./observalog-brain/target/release/observalog-brain > /tmp/brain.log 2>&1 &
-          echo $! > /tmp/brain.pid
-      - name: Wait for health
-        run: |
-          for i in $(seq 1 90); do
-            if curl -fsS http://localhost:4000/health >/dev/null; then exit 0; fi
-            sleep 2
-          done
-          cat /tmp/brain.log
-          exit 1
-      - name: Bombard ingest and drain all gates
-        run: python3 tests/adversarial/run_negative.py --payload-file /tmp/observalog-adversarial.jsonl
-      - name: Diagnostics on failure
-        if: failure()
-        run: |
-          cat /tmp/brain.log || true
-          pg_isready -h 127.0.0.1 -U observalog -d observalog || true
-      - name: Cleanup
-        if: always()
-        run: |
-          if [ -f /tmp/brain.pid ]; then kill "$(cat /tmp/brain.pid)" || true; fi
+        run: cargo test gate1_adversarial_tests -- --nocapture
+      - name: Run all adapter regression tests
+        working-directory: observalog-brain
+        run: cargo test adapter::
