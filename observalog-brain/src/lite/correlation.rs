@@ -547,6 +547,12 @@ pub async fn run(pool: PgPool) {
                     }
                     Err(err) => error!(error=%err, "could not recover correlation memory from Timescale"),
                 }
+                // Session advisory locks survive returning a healthy connection to
+                // SQLx's pool. Always release explicitly before yielding it.
+                let _ = sqlx::query("SELECT pg_advisory_unlock($1)")
+                    .bind(LEADER_LOCK_KEY)
+                    .execute(&mut *connection)
+                    .await;
                 drop(connection);
             }
             Ok(None) => sleep(TokioDuration::from_secs(1)).await,
