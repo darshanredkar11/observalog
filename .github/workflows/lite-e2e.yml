@@ -25,6 +25,8 @@ jobs:
   fluent-bit-to-timescale:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      LITE_INGEST_TOKEN: e2e-only-token-for-local-container-test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
