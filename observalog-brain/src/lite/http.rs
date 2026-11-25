@@ -8,30 +8,61 @@ use axum::{
 };
 use serde_json::{json, Value};
 use sqlx::PgPool;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use super::model::IngestResponse;
 
-pub fn router(pool: PgPool) -> Router {
+#[derive(Clone)]
+struct IngestState {
+    pool: PgPool,
+    token: Arc<str>,
+}
+
+pub fn router(pool: PgPool, ingest_token: String) -> Router {
+    let state = IngestState {
+        pool,
+        token: Arc::from(ingest_token),
+    };
     Router::new()
         .route("/health", get(health))
         .route("/ingest/raw", post(ingest_raw))
-        .with_state(pool)
+        .with_state(state)
         .layer(DefaultBodyLimit::max(16 * 1024 * 1024))
 }
 
-async fn health() -> StatusCode {
-    StatusCode::OK
+async fn health(State(state): State<IngestState>) -> StatusCode {
+    match sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&state.pool).await {
+        Ok(_) => StatusCode::OK,
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE,
+    }
+}
+
+fn constant_time_token_eq(provided: &[u8], expected: &[u8]) -> bool {
+    if provided.len() != expected.len() {
+        return false;
+    }
+    provided.iter().zip(expected).fold(0u8, |diff, (left, right)| diff | (left ^ right)) == 0
 }
 
 /// Accepts JSON Lines from Fluent Bit and raw text lines from direct sources.
 /// A 202 is returned only after raw input and its first durable gate-work item
 /// have committed to PostgreSQL/TimescaleDB.
 async fn ingest_raw(
-    State(pool): State<PgPool>,
+    State(state): State<IngestState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let bearer = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or_default();
+    if !constant_time_token_eq(bearer.as_bytes(), state.token.as_bytes()) {
+        return Err((StatusCode::UNAUTHORIZED, "missing or invalid bearer token".into()));
+    }
+
+    let pool = &state.pool;
     if body.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "empty request body".into()));
     }
@@ -187,6 +218,13 @@ fn internal_error(error: sqlx::Error) -> (StatusCode, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bearer_token_comparison_requires_exact_token() {
+        assert!(constant_time_token_eq(b"secret-token", b"secret-token"));
+        assert!(!constant_time_token_eq(b"secret-token", b"secret-token-2"));
+        assert!(!constant_time_token_eq(b"", b"secret-token"));
+    }
 
     #[test]
     fn unwraps_fluent_bit_envelope_and_uses_path_offset_identity() {
