@@ -46,10 +46,11 @@ The adapter never invents trace IDs, spans, outcome or duration. Missing informa
 
 ```bash
 cp .env.example .env
+# Replace LITE_INGEST_TOKEN with a random secret (at least 24 bytes).
 docker compose up -d --build
 ```
 
-The three runtime components are TimescaleDB, brain and Fluent Bit.
+The three runtime components are TimescaleDB, brain and Fluent Bit. The brain refuses to start without `LITE_INGEST_TOKEN` (minimum 24 bytes); replace the example token before exposing the stack beyond a local development machine.
 
 - Brain health: `http://localhost:4000/health`
 - Raw log ingest: `POST http://localhost:4000/ingest/raw`
@@ -62,11 +63,12 @@ Direct JSON Lines example:
 ```bash
 curl -X POST http://localhost:4000/ingest/raw \
   -H 'Content-Type: application/x-ndjson' \
+  -H "Authorization: Bearer $LITE_INGEST_TOKEN" \
   -H 'X-ObservaLog-Source: checkout-service' \
   --data-binary '{"timestamp":"2026-11-25T12:00:00Z","level":"ERROR","service":"checkout","trace_id":"t-001","message":"Payment provider timed out","error_code":"UPSTREAM_TIMEOUT"}'
 ```
 
-A successful response is HTTP 202 only after the raw record and normalization work item are durably committed. Requests are limited to 16 MB. The durable in-flight gate queue is bounded (default 50,000 pending/leased work items); when full, ingest returns HTTP 503 and Fluent Bit retries from its filesystem buffer.
+Raw ingest requires `Authorization: Bearer $LITE_INGEST_TOKEN`. A successful response is HTTP 202 only after the raw record and normalization work item are durably committed. Requests are limited to 16 MB. The durable in-flight gate queue is bounded (default 50,000 pending/leased work items); when full, ingest returns HTTP 503 and Fluent Bit retries from its filesystem buffer.
 
 ## Brain gates
 
