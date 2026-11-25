@@ -21,6 +21,8 @@ pub struct CanonicalEvent {
     pub parent_span_id: Option<String>,
     pub request_id: Option<String>,
     pub business_entity_id: Option<String>,
+    pub message_id: Option<String>,
+    pub dependency_name: Option<String>,
     pub event_name: Option<String>,
     pub message: Option<String>,
     pub outcome: Option<String>,
