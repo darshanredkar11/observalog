@@ -1,5 +1,9 @@
 name: ObservaLog Lite End-to-End
 
+concurrency:
+  group: observalog-lite-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [lite/streaming-adapter]
