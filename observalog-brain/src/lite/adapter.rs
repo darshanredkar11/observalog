@@ -84,11 +84,14 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
     let outcome = text_field(root, &["outcome", "result", "operation_status"])
         .map(|s| s.to_ascii_lowercase());
     record_source_path(root, &["outcome", "result", "operation_status"], "outcome", &mut provenance);
-    let duration_ms = find(root, &["duration_ms", "durationMs", "elapsed_ms", "latency_ms", "duration"])
-        .and_then(|(v, path)| {
-            provenance.insert("duration_ms".into(), json!({"source_path":path,"method":"numeric"}));
-            parse_number(v)
-        });
+    let duration_raw = find(root, &["duration_ms", "durationMs", "elapsed_ms", "latency_ms", "duration"]);
+    let duration_ms = duration_raw.and_then(|(v, path)| {
+        provenance.insert("duration_ms".into(), json!({"source_path":path,"method":"numeric"}));
+        parse_number(v)
+    });
+    if duration_raw.is_some() && duration_ms.is_none() {
+        quality_flags.push("duration_invalid".into());
+    }
 
     let error_object = find(root, &["error", "err", "exception"]).map(|(v, _)| v);
     let error_kind = error_object.and_then(|v| text_field(v, &["kind", "type", "name", "class"]))
@@ -109,6 +112,7 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
         ("request_id", &["request_id", "requestId", "correlation_id", "correlationId", "correlationID", "x_request_id"][..]),
         ("business_entity_id", &["business_entity_id", "entity_id", "order_id", "orderId", "payment_id", "document_id", "doc_id", "workflow_id", "transaction_id", "export_id"][..]),
         ("severity", &["severity_text", "severity", "level", "log.level", "levelname"][..]),
+        ("duration", &["duration_ms", "durationMs", "elapsed_ms", "latency_ms", "duration"][..]),
     ] {
         if aliases_conflict(root, aliases) {
             quality_flags.push(format!("conflicting_{field}_aliases"));
@@ -239,6 +243,21 @@ fn parse_text_record(raw: &str) -> Value {
 }
 
 fn find<'a>(value: &'a Value, aliases: &[&str]) -> Option<(&'a Value, String)> {
+    // Prefer root fields across all aliases before recursive fallback so
+    // nested noise (e.g. error.message) cannot override the record's message.
+    if let Value::Object(map) = value {
+        for alias in aliases {
+            if let Some(v) = map.get(*alias) {
+                return Some((v, format!("$.{alias}")));
+            }
+        }
+    }
+    // Resolve explicit dotted paths before recursive envelope fallback.
+    for alias in aliases.iter().filter(|alias| alias.contains('.')) {
+        if let Some(found) = find_key(value, alias, "$") {
+            return Some(found);
+        }
+    }
     for alias in aliases {
         if let Some(found) = find_key(value, alias, "$") {
             return Some(found);
@@ -317,18 +336,26 @@ fn record_source_path(root: &Value, aliases: &[&str], field: &str, provenance: &
 }
 
 fn parse_number(value: &Value) -> Option<f64> {
-    match value {
+    let parsed = match value {
         Value::Number(n) => n.as_f64(),
-        Value::String(s) => s.parse::<f64>().ok(),
+        Value::String(s) => s.trim().parse::<f64>().ok(),
         _ => None,
-    }
+    }?;
+    // Invalid measurements remain in raw source but are not canonicalized.
+    (parsed.is_finite() && parsed >= 0.0 && parsed <= 1.0e15).then_some(parsed)
 }
 
 fn parse_timestamp(value: &Value) -> Option<DateTime<Utc>> {
     match value {
         Value::String(s) => DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.with_timezone(&Utc)),
         Value::Number(n) => {
-            let number = n.as_i64().or_else(|| n.as_f64().map(|f| f as i64))?;
+            let number = n.as_i64().or_else(|| {
+                let float = n.as_f64()?;
+                if !float.is_finite() || float < i64::MIN as f64 || float > i64::MAX as f64 {
+                    return None;
+                }
+                Some(float.trunc() as i64)
+            })?;
             if number > 100_000_000_000 {
                 DateTime::from_timestamp_millis(number)
             } else {
@@ -389,7 +416,8 @@ fn normalize_severity(value: &Value) -> Option<String> {
                 11..=20 => "INFO",
                 21..=30 => "WARN",
                 31..=40 => "ERROR",
-                _ => "FATAL",
+                41..=50 => "FATAL",
+                _ => return None,
             }.into())
         }
         Value::String(s) => {
