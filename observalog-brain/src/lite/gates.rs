@@ -187,12 +187,14 @@ fn normalize_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> GateFuture<'a> {
 
 fn source_identity_key(event: &CanonicalEvent, metadata: &Value) -> Option<String> {
     let source_id = event.source_event_id.as_ref()?;
-    let source = event.service.as_deref()
-        .or_else(|| metadata.get("source_path").and_then(Value::as_str))
+    // Scope source event IDs to their actual collection stream. Event IDs can
+    // be unique inside a file/service but reused by another producer or stream.
+    let source = metadata.get("source_path").and_then(Value::as_str)
         .or(event.source_name.as_deref())
         .unwrap_or("unknown-source");
+    let service = event.service.as_deref().unwrap_or("unknown-service");
     let instance = event.instance.as_deref().unwrap_or("unknown-instance");
-    Some(format!("{source}:{instance}:{source_id}"))
+    Some(format!("{source}:{service}:{instance}:{source_id}"))
 }
 
 fn quality_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn std::future::Future<Output=Result<()>> + Send + 'a>> {
