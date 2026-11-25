@@ -1,0 +1,46 @@
+name: Incident Lab Generator
+
+on:
+  push:
+    paths:
+      - "tests/incident_lab/**"
+      - ".github/workflows/incident-lab.yml"
+  pull_request:
+    paths:
+      - "tests/incident_lab/**"
+      - ".github/workflows/incident-lab.yml"
+
+jobs:
+  generator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile generator
+        run: python -m py_compile tests/incident_lab/generate.py
+      - name: Generate randomized incident streams
+        run: |
+          python tests/incident_lab/generate.py \
+            --all --permutations 3 --seed 20261125 --shuffle-arrival \
+            --duplicate-rate 0.05 --drop-optional-rate 0.10 \
+            --output /tmp/incident-output
+      - name: Verify corpus and truth isolation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("/tmp/incident-output")
+          raw = sorted((root / "raw").glob("*.log"))
+          truth = sorted((root / "ground-truth").glob("*.json"))
+          manifest = json.loads((root / "manifest.json").read_text())
+          assert len(raw) == 63, f"expected 63 raw streams, got {len(raw)}"
+          assert len(truth) == 63, f"expected 63 truth files, got {len(truth)}"
+          assert len(manifest) == 63
+          assert all("primary_cause" not in p.read_text() for p in raw), "ground truth leaked into raw logs"
+          poison = [p for p in manifest if p["scenario"] == "poison-record-isolation"]
+          assert len(poison) == 3 and all(p["malformed_records"] == 1 for p in poison)
+          print("verified 21 scenarios × 3 arrival permutations; truth remains outside raw/")
+          PY
