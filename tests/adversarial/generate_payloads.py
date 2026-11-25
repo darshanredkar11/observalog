@@ -66,7 +66,7 @@ def build(seed: int = 20261125, repetitions: int = 10) -> list[str]:
                 if "request.id" in event:
                     event["request.id"]=f"req-dotted-{rep}"
                 if "order.id" in event:
-                    event["order.id"]=f"order-dotted-{rep"
+                    event["order.id"]=f"order-dotted-{rep}"
             else:
                 event={
                     "event_id": f"adv-{rep:02d}-{index:04d}",
