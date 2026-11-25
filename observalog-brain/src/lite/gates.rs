@@ -549,11 +549,12 @@ fn reason_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
             r#"
             INSERT INTO lite_findings
                 (incident_key,category,title,likely_cause,confidence,primary_event_id,
-                 evidence_event_ids,affected_services,alternatives,evidence)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                 evidence_event_ids,affected_services,alternatives,evidence,first_seen,last_seen)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)
             ON CONFLICT (incident_key) DO UPDATE SET
-                last_seen=now(),
-                occurrence_count=lite_findings.occurrence_count+1,
+                first_seen=LEAST(lite_findings.first_seen,EXCLUDED.first_seen),
+                last_seen=GREATEST(lite_findings.last_seen,EXCLUDED.last_seen),
+                occurrence_count=GREATEST(lite_findings.occurrence_count, jsonb_array_length(EXCLUDED.evidence_event_ids)),
                 confidence=GREATEST(lite_findings.confidence,EXCLUDED.confidence),
                 evidence=EXCLUDED.evidence,
                 evidence_event_ids=EXCLUDED.evidence_event_ids,
@@ -563,6 +564,7 @@ fn reason_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
         )
         .bind(&incident_key).bind(&category).bind(&title).bind(&cause).bind(confidence)
         .bind(primary_event_id).bind(evidence_ids).bind(affected).bind(json!(alternatives)).bind(evidence)
+        .bind(current.event_ts)
         .execute(&mut *tx).await?;
 
         sqlx::query("UPDATE lite_gate_work SET state='done', lease_until=NULL, last_error=NULL WHERE id=$1")
