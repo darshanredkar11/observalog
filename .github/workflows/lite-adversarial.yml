@@ -1,0 +1,55 @@
+name: Lite Adversarial Gate Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [lite/adversarial-gate-testing]
+    paths:
+      - 'tests/adversarial/**'
+      - 'observalog-brain/src/lite/**'
+      - 'observalog-brain/Cargo.toml'
+      - 'docker-compose.yml'
+      - '.github/workflows/lite-adversarial.yml'
+
+jobs:
+  negative-payloads:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LITE_INGEST_TOKEN: adversarial-ci-only-token-at-least-24-chars
+      FLUENT_BIT_CONFIG: ./tests/incident_lab/fluent-bit-e2e.conf
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate test harness syntax
+        run: python3 -m py_compile tests/adversarial/generate_payloads.py tests/adversarial/run_negative.py
+      - name: Generate adversarial payloads
+        run: python3 tests/adversarial/generate_payloads.py --repetitions 10 --output /tmp/observalog-adversarial.jsonl
+      - name: Validate Compose
+        run: docker compose config
+      - name: Build brain
+        run: docker compose build brain
+      - name: Start fresh database and brain
+        run: docker compose up -d timescaledb brain
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:4000/health >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker compose logs brain
+          exit 1
+      - name: Bombard ingest and drain all gates
+        run: python3 tests/adversarial/run_negative.py --payload-file /tmp/observalog-adversarial.jsonl
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          docker compose ps -a
+          docker compose logs --tail=300 brain
+          docker compose logs --tail=300 timescaledb
+          docker compose exec -T timescaledb psql -U observalog -d observalog -x -c "SELECT gate_name,state,attempts,last_error,count(*) FROM lite_gate_work GROUP BY gate_name,state,attempts,last_error ORDER BY gate_name,state,attempts" || true
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v --remove-orphans
