@@ -41,7 +41,7 @@ def build(seed: int = 20261125, repetitions: int = 10) -> list[str]:
         {"exception": {"type": "NullPointerException", "stacktrace": "x" * 10000},
          "message": "stacktrace heavy"},
         {"message": "unknown fields should not break us", "unmapped": {"deep": {"array": [1,2,3]}}},
-        {"resource": {"service": {"name": "nested-service"}, "attributes": {"host.name": "node-1"}},
+        {"resource": {"service": {"name": "nested-service"}, "attributes": {"host.name": "node-1"}}},
         {"attributes": {"event.id": "e-dotted", "request.id": "r-dotted", "order.id": "o-dotted"}},
         {"message": "short", "extra": "x" * 250000},
         {"message": "wide object", **{f"field_{i}": i for i in range(300)}},
