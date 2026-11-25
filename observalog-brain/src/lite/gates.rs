@@ -253,6 +253,7 @@ fn correlate_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<
                FROM lite_event_index WHERE id=$1 AND event_ts=$2 LIMIT 1"#
         ).bind(payload_id).bind(work.event_ts.context("gate work has no event timestamp")?).fetch_one(pool).await?;
 
+        let mut tx = pool.begin().await?;
         let trace = current.trace_id.clone().filter(|v| !v.starts_with("sys_"));
         let request = current.request_id.clone();
         let entity = current.business_entity_id.clone();
@@ -301,7 +302,7 @@ fn correlate_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<
                     sqlx::query(
                         "INSERT INTO lite_signals (event_id,event_ts,signal_type,severity,evidence) VALUES ($1,$2,'trace_identity_conflict','high',$3) ON CONFLICT (event_id,signal_type) DO NOTHING"
                     )
-                    .bind(payload_id).bind(current.event_ts).bind(evidence).execute(pool).await?;
+                    .bind(payload_id).bind(current.event_ts).bind(evidence).execute(&mut *tx).await?;
                 }
 
                 let mut relations = Vec::new();
@@ -338,12 +339,19 @@ fn correlate_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<
                         "INSERT INTO lite_event_links (event_a,event_b,relation_type,confidence,evidence) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING"
                     )
                     .bind(a).bind(b).bind(relation).bind(confidence).bind(evidence)
-                    .execute(pool).await?;
+                    .execute(&mut *tx).await?;
                 }
             }
         }
 
-        queue::complete(pool, work, Some("detect"), Some(payload_id)).await?;
+        // Correlation edges/signals and the downstream cursor move together.
+        sqlx::query("UPDATE lite_gate_work SET state='done', lease_until=NULL, payload_id=$2, event_ts=$3, last_error=NULL WHERE id=$1")
+            .bind(work.work_id).bind(payload_id).bind(current.event_ts)
+            .execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO lite_gate_work (raw_id,gate_name,payload_id,event_ts) VALUES ($1,'detect',$2,$3) ON CONFLICT (raw_id,gate_name) DO NOTHING")
+            .bind(&work.raw_id).bind(payload_id).bind(current.event_ts)
+            .execute(&mut *tx).await?;
+        tx.commit().await?;
         Ok(())
     })
 }
