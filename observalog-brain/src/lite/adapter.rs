@@ -244,7 +244,9 @@ fn parse_text_record(raw: &str) -> Value {
             if let Some((key, value)) = token.split_once('=') {
                 let key = key.trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_' && ch != '.');
                 let value = value.trim_matches(|ch: char| matches!(ch, '"' | '\'' | ',' | ']'));
-                if !key.is_empty() && !value.is_empty() {
+                if !key.is_empty() && !value.is_empty() && key != "message" && key != "msg" {
+                    // The parsed text body is already preserved as the message.
+                    // Do not overwrite it with a single KV token from the line.
                     fields.insert(key.into(), json!(value));
                 }
             }
