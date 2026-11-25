@@ -2,6 +2,10 @@
 
 These diagrams describe the target flow. They are design contracts for implementation phases, not claims that the behavior is already implemented.
 
+## Pipeline invariant: asynchronous stream gates
+
+All event-processing gates are independently progressing stream processors. Each gate consumes, processes and emits without a synchronous cross-gate round trip. Internal communication uses bounded asynchronous queues/streams. Durable delivery ACKs are protocol signals tied to the explicit acceptance boundary; they do not make downstream analysis a synchronous dependency. Backpressure is explicit, bounded and may propagate upstream.
+
 ## 1. Connect a Kubernetes namespace
 
 ```mermaid
@@ -71,14 +75,14 @@ sequenceDiagram
 
     FB->>Intake: Batch of raw records + Kubernetes metadata
     Intake->>Intake: Validate size, source and batch envelope
-    Intake->>Parse: Bounded message hand-off
+    Intake-)Parse: Async bounded hand-off
     Parse->>Parse: Detect JSON / text / severity / timestamp / exception
-    Parse->>Adapter: Parsed fields + immutable raw evidence + provenance
+    Parse-)Adapter: Async stream of parsed fields + raw evidence + provenance
     Adapter->>Adapter: Map known values; mark missing fields unknown/synthetic
-    Adapter->>Brain: Contract-compatible event
-    Brain->>DB: Existing payload-first/index-second write contract
-    DB-->>Brain: Commit result
-    Brain-->>Intake: Durable batch ACK
+    Adapter-)Brain: Async contract-compatible event stream
+    Brain-)DB: Batched asynchronous persistence
+    DB-->>Brain: Commit signal
+    Brain-->>Intake: Durable acceptance signal (protocol ACK path)
     Intake-->>FB: HTTP success
 ```
 
@@ -161,9 +165,9 @@ sequenceDiagram
     HTTP->>Q: try_send / bounded admission
     alt Queue has capacity
         Q-->>N: Deliver owned batch
-        N->>A: Send normalized immutable events
-        A->>P: Send persistence command
-        P-->>HTTP: Completion / durable ACK signal
+        N-)A: Emit normalized immutable event stream
+        A-)P: Emit persistence commands
+        P-->>HTTP: Separate durability ACK signal
         HTTP-->>FB: HTTP success
     else Queue at capacity
         Q-->>HTTP: Full
