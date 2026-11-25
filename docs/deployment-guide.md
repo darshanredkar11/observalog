@@ -23,7 +23,7 @@ Place application log files under `./var/logs/*.log`. On Linux Docker hosts, Flu
 | Variable | Default | Purpose |
 |---|---|---|
 | `POSTGRES_PASSWORD` | `observalog` | Local TimescaleDB password; change outside local development |
-| `LITE_INGEST_TOKEN` | required | Bearer token protecting raw ingest; minimum 24 bytes |
+| `LITE_INGEST_TOKEN` | required | Shared ingest token protecting raw ingest; minimum 24 bytes |
 | `DATABASE_URL` | Compose-generated | Brain database connection |
 | `LISTEN_ADDR` | `0.0.0.0:4000` | Brain HTTP listener |
 | `DB_MAX_CONNECTIONS` | `20` | SQL connection pool |
