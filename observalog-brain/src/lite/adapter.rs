@@ -53,6 +53,9 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
 
     let trace_id = text_field(root, &["trace_id", "traceId", "trace.id", "trace", "x_trace_id"]);
     record_source_path(root, &["trace_id", "traceId", "trace.id", "trace", "x_trace_id"], "trace_id", &mut provenance);
+    if trace_id.as_deref().is_some_and(|value| value.trim().len() < 8) {
+        quality_flags.push("trace_id_short_unverified".into());
+    }
     let span_id = text_field(root, &["span_id", "spanId", "span.id", "span"]);
     record_source_path(root, &["span_id", "spanId", "span.id", "span"], "span_id", &mut provenance);
     let parent_span_id = text_field(root, &["parent_span_id", "parentSpanId", "parent_span", "parentSpan"]);
