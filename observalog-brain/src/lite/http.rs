@@ -124,7 +124,7 @@ fn record_from_value(value: Value, source_header: &str) -> (String, Value, Optio
         metadata = json!({"record":metadata});
     }
     if let Some(object) = metadata.as_object_mut() {
-        object.entry("source_name".into()).or_insert_with(|| json!(source_header));
+        object.entry("source_name".to_string()).or_insert_with(|| json!(source_header));
     }
 
     let is_fluent_bit_envelope = value.get("log").and_then(Value::as_str).is_some()
@@ -138,8 +138,9 @@ fn record_from_value(value: Value, source_header: &str) -> (String, Value, Optio
         }
     };
 
-    let source_key = value.get("source_path").and_then(Value::as_str)
-        .zip(value.get("source_offset").and_then(value_to_string).as_deref())
+    let source_path = value.get("source_path").and_then(Value::as_str);
+    let source_offset = value.get("source_offset").and_then(value_to_string);
+    let source_key = source_path.zip(source_offset.as_deref())
         .map(|(path, offset)| format!("{source_header}:{path}:{offset}"));
 
     (raw_text, metadata, source_key)
