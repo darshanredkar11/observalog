@@ -36,7 +36,7 @@ When the durable work limit is reached, raw ingest returns HTTP 503 and rolls ba
 
 `GET /health`
 
-`POST /ingest/raw` accepts a JSON object, JSON array, JSON Lines or plain text. Include an optional `X-ObservaLog-Source` header. A HTTP 202 response means both the raw event and initial work item have committed to TimescaleDB. Send `Authorization: Bearer $LITE_INGEST_TOKEN`; missing or invalid tokens receive HTTP 401.
+`POST /ingest/raw` accepts a JSON object, JSON array, JSON Lines or plain text. Include an optional `X-ObservaLog-Source` header. A HTTP 202 response means both the raw event and initial work item have committed to TimescaleDB. Send `X-ObservaLog-Token: $LITE_INGEST_TOKEN`; missing or invalid tokens receive HTTP 401.
 
 ## Recovery
 
