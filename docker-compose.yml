@@ -40,7 +40,7 @@ services:
   fluent-bit:
     image: fluent/fluent-bit:3.2
     volumes:
-      - ./docker/fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ${FLUENT_BIT_CONFIG:-./docker/fluent-bit/fluent-bit.conf}:/fluent-bit/etc/fluent-bit.conf:ro
       - ./docker/fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - ./var/logs:/var/log/observalog:ro
