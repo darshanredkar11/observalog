@@ -68,10 +68,11 @@ pub async fn run_reasoning(pool: PgPool) {
     run_loop(pool, "reason", reason_one).await;
 }
 
-async fn run_loop<F>(pool: PgPool, gate: &'static str, process: F)
-where
-    F: for<'a> fn(&'a PgPool, &'a WorkItem) -> std::pin::Pin<Box<dyn std::future::Future<Output=Result<()>> + Send + 'a>>,
-{
+async fn run_loop(
+    pool: PgPool,
+    gate: &'static str,
+    process: for<'a> fn(&'a PgPool, &'a WorkItem) -> std::pin::Pin<Box<dyn std::future::Future<Output=Result<()>> + Send + 'a>>,
+) {
     loop {
         match queue::claim(&pool, gate).await {
             Ok(Some(work)) => {
@@ -301,10 +302,10 @@ fn detect_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
 
         let severity = event.severity.as_deref().unwrap_or("");
         if matches!(severity, "ERROR" | "FATAL") {
-            signals.push(("error_event","high",json!({"severity":severity,"error_code":event.error_code})));
+            signals.push(("error_event","high",json!({"severity":severity,"error_code":event.error_code.as_deref()})));
         }
         if event.outcome.as_deref() == Some("failure") {
-            signals.push(("business_or_operation_failure","high",json!({"outcome":event.outcome})));
+            signals.push(("business_or_operation_failure","high",json!({"outcome":event.outcome.as_deref()})));
         }
         let threshold = std::env::var("LITE_SLOW_THRESHOLD_MS").ok()
             .and_then(|s| s.parse::<f64>().ok()).unwrap_or(1000.0);
@@ -312,11 +313,11 @@ fn detect_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
             signals.push(("slow_operation","medium",json!({"duration_ms":event.duration_ms,"threshold_ms":threshold})));
         }
         if contains_retry_marker(&event.attributes) || event.message.as_deref().is_some_and(|m| m.to_ascii_lowercase().contains("retry")) {
-            signals.push(("retry_activity","medium",json!({"message":event.message})));
+            signals.push(("retry_activity","medium",json!({"message":event.message.as_deref()})));
         }
         let code = event.error_code.as_deref().unwrap_or("").to_ascii_uppercase();
         if code.contains("DUPLICATE") || code.contains("IDEMPOTENCY") || code.contains("STATE_MISMATCH") || code.contains("INVARIANT") {
-            signals.push(("business_invariant_or_idempotency","high",json!({"error_code":event.error_code})));
+            signals.push(("business_invariant_or_idempotency","high",json!({"error_code":event.error_code.as_deref()})));
         }
 
         let mut tx = pool.begin().await?;
@@ -446,8 +447,9 @@ fn reason_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
             alternatives.push(json!({"category":"downstream_symptom","event_id":current.id,"note":"An earlier correlated failure may be the initiating signal; temporal order alone is not proof of causality."}));
         }
 
+        let primary_event_id = primary_error.id;
         let evidence = json!({
-            "primary_event_id":primary_error.id,
+            "primary_event_id":primary_event_id,
             "trigger_event_id":current.id,
             "related_events":related,
             "cohort_comparison":cohorts,
@@ -481,7 +483,7 @@ fn reason_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
             "#
         )
         .bind(&incident_key).bind(&category).bind(&title).bind(&cause).bind(confidence)
-        .bind(primary_error.id).bind(evidence_ids).bind(affected).bind(json!(alternatives)).bind(evidence)
+        .bind(primary_event_id).bind(evidence_ids).bind(affected).bind(json!(alternatives)).bind(evidence)
         .execute(&mut *tx).await?;
 
         sqlx::query("UPDATE lite_gate_work SET state='done', lease_until=NULL, last_error=NULL WHERE id=$1")
