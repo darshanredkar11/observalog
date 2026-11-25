@@ -32,6 +32,10 @@ Place application log files under `./var/logs/*.log`. On Linux Docker hosts, Flu
 
 When the durable work limit is reached, raw ingest returns HTTP 503 and rolls back the batch. Fluent Bit retains/retries it using filesystem buffering. The HTTP body limit is 16 MB.
 
+## Network security
+
+The local Compose ports bind to `127.0.0.1` only. The shared ingest token authenticates the request but does not encrypt it. Keep the brain and Fluent Bit on a trusted private Docker network; terminate TLS at a trusted ingress/reverse proxy before allowing remote clients or collectors.
+
 ## Ingestion API
 
 `GET /health`
