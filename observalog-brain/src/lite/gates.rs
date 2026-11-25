@@ -691,7 +691,7 @@ mod gate2_quality_tests {
         let q=assess_quality(&e);
         assert_eq!(q["mapping_confidence"],0.70);
         assert_eq!(q["flags"],json!(["conflicting_duration_aliases","conflicting_service_aliases"]));
-        e.quality=json!({"flags":vec!["conflicting_alias".to_string();1000]});
+        e.quality=json!({"flags":(0..1000).map(|i|format!("conflicting_alias_{i}")).collect::<Vec<_>>()});
         assert_eq!(assess_quality(&e)["mapping_confidence"],0.0);
     }
 
