@@ -25,7 +25,7 @@ cleanup() {
       "SELECT gate_name,state,attempts,last_error,count(*) FROM lite_gate_work GROUP BY gate_name,state,attempts,last_error ORDER BY gate_name,state,attempts" || true
   fi
   docker compose down -v --remove-orphans || true
-  rm -f var/logs/observalog-e2e-generated.log
+  rm -f var/logs/observalog-e2e-generated.log var/logs/observalog-e2e__*.log
   exit "$rc"
 }
 trap cleanup EXIT
@@ -50,8 +50,11 @@ for permutation in $(seq 0 $((PERMUTATIONS - 1))); do
   echo "=== End-to-end permutation $suffix / $PERMUTATIONS ==="
 
   docker compose down -v --remove-orphans || true
-  cat "$OUTPUT"/raw/*"__p${suffix}.log" > var/logs/observalog-e2e-generated.log
-  expected_lines="$(wc -l < var/logs/observalog-e2e-generated.log | tr -d ' ')"
+  rm -f var/logs/observalog-e2e__*.log
+  for fixture in "$OUTPUT"/raw/*"__p${suffix}.log"; do
+    cp "$fixture" "var/logs/observalog-e2e__$(basename "$fixture")"
+  done
+  expected_lines="$(cat var/logs/observalog-e2e__*.log | wc -l | tr -d ' ')"
   echo "Expected $expected_lines fixture records"
 
   docker compose up -d timescaledb brain
