@@ -61,6 +61,12 @@ def build(seed: int = 20261125, repetitions: int = 10) -> list[str]:
                 event.setdefault("source_name", "adversarial-corpus")
                 event["test_rep"]=rep
                 event["test_case"]=index
+                # Repeated event batches get fresh request/business keys while
+                # the deliberately weak one-character trace ID stays shared.
+                if "request.id" in event:
+                    event["request.id"]=f"req-dotted-{rep}"
+                if "order.id" in event:
+                    event["order.id"]=f"order-dotted-{rep"
             else:
                 event={
                     "event_id": f"adv-{rep:02d}-{index:04d}",
