@@ -280,8 +280,7 @@ fn find<'a>(value: &'a Value, aliases: &[&str]) -> Option<(&'a Value, String)> {
 }
 
 fn find_key<'a>(value: &'a Value, key: &str, path: &str) -> Option<(&'a Value, String)> {
-    match value {
-        Value::Object(map) => {
+    if let Value::Object(map) = value {
             if let Some(v) = map.get(key) {
                 return Some((v, format!("{path}.{key}")));
             }
@@ -313,8 +312,6 @@ fn find_key<'a>(value: &'a Value, key: &str, path: &str) -> Option<(&'a Value, S
                     }
                 }
             }
-        }
-        _ => {}
     }
     None
 }
@@ -383,7 +380,7 @@ fn parse_number(value: &Value) -> Option<f64> {
         _ => None,
     }?;
     // Invalid measurements remain in raw source but are not canonicalized.
-    (parsed.is_finite() && parsed >= 0.0 && parsed <= 1.0e15).then_some(parsed)
+    (parsed.is_finite() && (0.0..=1.0e15).contains(&parsed)).then_some(parsed)
 }
 
 fn parse_timestamp(value: &Value) -> Option<DateTime<Utc>> {

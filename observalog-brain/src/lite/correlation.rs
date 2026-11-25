@@ -190,8 +190,7 @@ impl CorrelationEngine {
             let other = &self.nodes[id].event;
             let distance = event
                 .event_ts
-                .clone()
-                .signed_duration_since(other.event_ts.clone())
+                .signed_duration_since(other.event_ts)
                 .num_milliseconds()
                 .unsigned_abs();
             (distance, *id)
@@ -209,7 +208,7 @@ impl CorrelationEngine {
             }
             let Some(other_node) = self.nodes.get(&other_id) else { continue; };
             let other = &other_node.event;
-            let delta = current.event_ts.clone().signed_duration_since(other.event_ts.clone());
+            let delta = current.event_ts.signed_duration_since(other.event_ts);
             if delta > WINDOW || delta < -WINDOW {
                 continue;
             }
@@ -330,8 +329,7 @@ impl CorrelationEngine {
     }
 
     fn evict(&mut self) {
-        loop {
-            let Some(oldest_id) = self.insertion_order.front().copied() else { break; };
+        while let Some(oldest_id) = self.insertion_order.front().copied() {
             let expired = self.nodes.get(&oldest_id)
                 .is_some_and(|node| node.inserted_at.elapsed() >= RESIDENT_TTL);
             let over_capacity = self.nodes.len() > MAX_RESIDENT_EVENTS;
