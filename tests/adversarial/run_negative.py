@@ -81,12 +81,22 @@ def main():
     index_count=int(psql("SELECT COUNT(*) FROM lite_event_index"))
     raw_preserved=int(psql("SELECT COUNT(*) FROM lite_event_payload p JOIN lite_raw_records r ON r.id=p.raw_id WHERE p.raw_text IS NOT DISTINCT FROM r.raw_text"))
     flags_count=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE jsonb_array_length(quality_flags)>0"))
+    missing_trace=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE trace_id IS NULL"))
+    missing_outcome=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE outcome IS NULL"))
+    missing_duration=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE duration_ms IS NULL"))
+    signal_count=int(psql("SELECT COUNT(*) FROM lite_signals"))
+    finding_count=int(psql("SELECT COUNT(*) FROM lite_findings"))
+    short_trace_links=int(psql("SELECT COUNT(*) FROM lite_event_links WHERE evidence->>'trace_id'='A'"))
     malformed_preserved=int(psql("SELECT COUNT(*) FROM lite_event_payload WHERE raw_text IN ('{','{not-json}','undefined','Infinity','-Infinity')"))
     assert payload_count==index_count, f"payload/index mismatch {payload_count}/{index_count}"
     assert raw_preserved==payload_count, f"raw payload not preserved for {raw_preserved}/{payload_count}"
     assert flags_count>0, "negative payload corpus produced no quality flags"
+    assert missing_trace>0 and missing_outcome>0 and missing_duration>0, "sparse records were unexpectedly filled with fabricated fields"
+    assert signal_count>0, "detection gate produced no signals from explicit ERROR/FATAL probes"
+    assert finding_count>0, "reasoning gate produced no findings from explicit failure signals"
+    assert short_trace_links==0, f"short unverified trace ID 'A' created {short_trace_links} correlations"
     assert dead==0, f"{dead} work items are dead"
-    print(f"PASS: raw={raw} canonical={index_count} payload={payload_count} quality_flagged={flags_count} malformed_text_preserved={malformed_preserved} pending={pending} dead={dead}")
-    print("PASS: auth, empty-body, oversized-body, optional-field, contradictory, malformed, NL, unicode and replay/duplicate checks")
+    print(f"PASS: raw={raw} canonical={index_count} payload={payload_count} quality_flagged={flags_count} signals={signal_count} findings={finding_count} missing_trace={missing_trace} missing_outcome={missing_outcome} missing_duration={missing_duration} malformed_preserved={malformed_preserved} weak_trace_links={short_trace_links} pending={pending} dead={dead}")
+    print("PASS: all five gates; auth, empty-body, oversized-body, optional-field, contradictory, malformed, NL, unicode, concurrency, replay/duplicate and weak-identity negative checks")
 if __name__=="__main__":
     main()
