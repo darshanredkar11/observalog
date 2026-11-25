@@ -247,13 +247,12 @@ fn quality_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dy
 fn correlate_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn std::future::Future<Output=Result<()>> + Send + 'a>> {
     Box::pin(async move {
         let payload_id = work.payload_id.context("correlation work has no payload_id")?;
+        let mut tx = pool.begin().await?;
         let current: EventRow = sqlx::query_as(
             r#"SELECT id,event_ts,observed_at,service,instance,version,tenant_id,
                       severity,trace_id,span_id,parent_span_id,request_id,business_entity_id,outcome,error_code
                FROM lite_event_index WHERE id=$1 AND event_ts=$2 LIMIT 1"#
-        ).bind(payload_id).bind(work.event_ts.context("gate work has no event timestamp")?).fetch_one(pool).await?;
-
-        let mut tx = pool.begin().await?;
+        ).bind(payload_id).bind(work.event_ts.context("gate work has no event timestamp")?).fetch_one(&mut *tx).await?;
         let trace = current.trace_id.clone().filter(|v| !v.starts_with("sys_"));
         let request = current.request_id.clone();
         let entity = current.business_entity_id.clone();
@@ -277,7 +276,7 @@ fn correlate_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<
             .bind(trace)
             .bind(request)
             .bind(entity)
-            .fetch_all(pool).await?;
+            .fetch_all(&mut *tx).await?;
 
             for other in matches {
                 let request_conflict = current.request_id.as_ref().zip(other.request_id.as_ref())
