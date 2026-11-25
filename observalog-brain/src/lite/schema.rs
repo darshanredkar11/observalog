@@ -140,8 +140,8 @@ CREATE INDEX IF NOT EXISTS lite_findings_last_seen_idx ON lite_findings (last_se
 "#;
 
 pub async fn run(pool: &PgPool) -> Result<()> {
-    for statement in DDL.split(';').map(str::trim).filter(|s| !s.is_empty()) {
-        sqlx::query(statement).execute(pool).await?;
-    }
+    // This DDL is a trusted, compile-time constant and intentionally contains
+    // multiple statements (including TimescaleDB extension/hypertable setup).
+    sqlx::raw_sql(DDL).execute(pool).await?;
     Ok(())
 }
