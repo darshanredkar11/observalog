@@ -8,8 +8,7 @@ on:
       - 'tests/adversarial/**'
       - 'observalog-brain/src/lite/**'
       - 'observalog-brain/Cargo.toml'
-      - 'observalog-brain/Dockerfile'
-      - 'docker-compose.yml'
+      - 'observalog-brain/Cargo.lock'
       - '.github/workflows/lite-adversarial.yml'
 
 jobs:
@@ -18,39 +17,55 @@ jobs:
     timeout-minutes: 30
     env:
       LITE_INGEST_TOKEN: adversarial-ci-only-token-at-least-24-chars
-      FLUENT_BIT_CONFIG: ./tests/incident_lab/fluent-bit-e2e.conf
+      DATABASE_URL: postgres://observalog:observalog@127.0.0.1:5432/observalog
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: observalog
+          POSTGRES_PASSWORD: observalog
+          POSTGRES_DB: observalog
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U observalog -d observalog"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
       - name: Validate test harness syntax
         run: python3 -m py_compile tests/adversarial/generate_payloads.py tests/adversarial/run_negative.py
       - name: Generate adversarial payloads
         run: python3 tests/adversarial/generate_payloads.py --repetitions 10 --output /tmp/observalog-adversarial.jsonl
-      - name: Validate Compose
-        run: docker compose config
-      - name: Build brain
-        run: docker compose build brain
-      - name: Start fresh database and brain
-        run: docker compose up -d timescaledb brain
+      - name: Build Rust brain natively
+        working-directory: observalog-brain
+        run: cargo test --release && cargo build --release
+      - name: Start brain natively
+        run: |
+          DATABASE_URL="$DATABASE_URL" LITE_INGEST_TOKEN="$LITE_INGEST_TOKEN" ./observalog-brain/target/release/observalog-brain > /tmp/brain.log 2>&1 &
+          echo $! > /tmp/brain.pid
       - name: Wait for health
         run: |
           for i in $(seq 1 90); do
             if curl -fsS http://localhost:4000/health >/dev/null; then exit 0; fi
             sleep 2
           done
-          docker compose logs brain
+          cat /tmp/brain.log
           exit 1
       - name: Bombard ingest and drain all gates
         run: python3 tests/adversarial/run_negative.py --payload-file /tmp/observalog-adversarial.jsonl
       - name: Diagnostics on failure
         if: failure()
         run: |
-          docker compose ps -a
-          docker compose logs --tail=300 brain
-          docker compose logs --tail=300 timescaledb
-          docker compose exec -T timescaledb psql -U observalog -d observalog -x -c "SELECT gate_name,state,attempts,last_error,count(*) FROM lite_gate_work GROUP BY gate_name,state,attempts,last_error ORDER BY gate_name,state,attempts" || true
+          cat /tmp/brain.log || true
+          pg_isready -h 127.0.0.1 -U observalog -d observalog || true
       - name: Cleanup
         if: always()
-        run: docker compose down -v --remove-orphans
+        run: |
+          if [ -f /tmp/brain.pid ]; then kill "$(cat /tmp/brain.pid)" || true; fi
