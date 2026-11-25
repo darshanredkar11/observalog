@@ -249,11 +249,18 @@ fn find_key<'a>(value: &'a Value, key: &str, path: &str) -> Option<(&'a Value, S
 }
 
 fn text_field(value: &Value, aliases: &[&str]) -> Option<String> {
-    find(value, aliases).and_then(|(v, _)| match v {
-        Value::String(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
-        Value::Number(n) => Some(n.to_string()),
-        _ => None,
-    })
+    for alias in aliases {
+        let (found, _) = find(value, &[*alias])?;
+        let mapped = match found {
+            Value::String(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
+            Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        };
+        if mapped.is_some() {
+            return mapped;
+        }
+    }
+    None
 }
 
 fn string_field(value: &Value, aliases: &[&str]) -> Option<String> {
