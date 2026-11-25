@@ -8,7 +8,7 @@ The gates below are logical responsibilities inside the brain. They do not imply
 - Gates communicate asynchronously. No gate waits synchronously for a downstream gate to finish its work.
 - In-memory queues are bounded. Queue saturation must cause backpressure, not unbounded memory growth.
 - In-memory queues are not the durability boundary. Persisted inputs and per-gate checkpoints allow replay after restart.
-- Each gate is independently restartable and idempotent.
+- Each gate is independently restartable and idempotent; a per-gate supervisor restarts an unexpectedly exited worker.
 - A failed record is isolated; it must not stop unrelated records or an entire stream partition.
 - Preserve original bytes/text and source metadata throughout normalization.
 - Unknown fields and missing values are data, not fatal contract violations.
