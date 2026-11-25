@@ -8,6 +8,7 @@ on:
       - 'tests/adversarial/**'
       - 'observalog-brain/src/lite/**'
       - 'observalog-brain/Cargo.toml'
+      - 'observalog-brain/Dockerfile'
       - 'docker-compose.yml'
       - '.github/workflows/lite-adversarial.yml'
 
