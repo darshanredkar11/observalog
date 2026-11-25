@@ -1,78 +1,50 @@
 use anyhow::{Context, Result};
-use observalog_brain::{
-    db::schema,
-    ingest::kafka::{KafkaConfig, run as kafka_run},
-    triage::llm::LlmConfig,
-    ws::{router, AppState},
-};
+use observalog_brain::lite::{self, http};
 use sqlx::postgres::PgPoolOptions;
-use std::{net::SocketAddr, sync::Arc};
-use tracing::{info, warn};
+use std::net::SocketAddr;
+use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Tracing setup.
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
-    info!("observalog-brain starting");
+    info!("ObservaLog Lite starting");
 
-    // Database.
-    let db_url = std::env::var("DATABASE_URL")
-        .context("DATABASE_URL required (postgres://user:pass@host/db)")?;
+    let database_url = std::env::var("DATABASE_URL")
+        .context("DATABASE_URL is required")?;
+    let max_connections = std::env::var("DB_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(20);
 
     let pool = PgPoolOptions::new()
-        .max_connections(20)
-        .connect(&db_url)
+        .max_connections(max_connections)
+        .connect(&database_url)
         .await
-        .context("DB connect failed")?;
+        .context("TimescaleDB connection failed")?;
 
-    // Apply schema DDL.
-    schema::run(&pool).await.context("schema migration failed")?;
-    info!("schema applied");
+    lite::schema::run(&pool)
+        .await
+        .context("lite schema initialization failed")?;
 
-    // Redis / Valkey (Gap 5/7: out-of-order buffer, 30s grace window).
-    let redis_url = std::env::var("REDIS_URL")
-        .unwrap_or_else(|_| "redis://localhost:6379".to_string());
-    let redis_client = redis::Client::open(redis_url.as_str())
-        .context("Redis client init failed")?;
+    lite::start_workers(pool.clone()).await;
 
-    // LLM config.
-    let llm_cfg = LlmConfig::from_env().context("LLM config failed")?;
-
-    // Start Kafka consumer in background.
-    let pool_kafka = pool.clone();
-    let kafka_cfg = KafkaConfig::from_env().context("Kafka config failed")?;
-    tokio::spawn(async move {
-        if let Err(e) = kafka_run(pool_kafka, kafka_cfg).await {
-            warn!(error = %e, "Kafka consumer exited");
-        }
-    });
-
-    // Start WebSocket API.
-    let state = Arc::new(AppState {
-        db: pool,
-        redis: redis_client,
-        llm_cfg: Arc::new(llm_cfg),
-    });
-
-    let app = router(state);
-    let addr: SocketAddr = std::env::var("LISTEN_ADDR")
+    let app = http::router(pool);
+    let address: SocketAddr = std::env::var("LISTEN_ADDR")
         .unwrap_or_else(|_| "0.0.0.0:4000".to_string())
         .parse()
         .context("invalid LISTEN_ADDR")?;
 
-    info!(addr = %addr, "WebSocket API listening");
-    let listener = tokio::net::TcpListener::bind(addr)
+    let listener = tokio::net::TcpListener::bind(address)
         .await
-        .context("bind failed")?;
-    axum::serve(listener, app)
-        .await
-        .context("server error")?;
+        .context("HTTP bind failed")?;
+    info!(%address, "ObservaLog Lite HTTP ingest listening");
+    axum::serve(listener, app).await.context("HTTP server failed")?;
 
     Ok(())
 }
