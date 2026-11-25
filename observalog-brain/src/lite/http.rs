@@ -54,9 +54,8 @@ async fn ingest_raw(
     body: Bytes,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let bearer = headers
-        .get("authorization")
+        .get("x-observalog-token")
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
         .unwrap_or_default();
     if !constant_time_token_eq(bearer.as_bytes(), state.token.as_bytes()) {
         return Err((StatusCode::UNAUTHORIZED, "missing or invalid bearer token".into()));
