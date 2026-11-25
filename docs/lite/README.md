@@ -34,7 +34,7 @@ The three runtime services are:
 
 For local direct file ingestion, place logs under `./var/logs/`. The HTTP endpoint is `POST http://localhost:4000/ingest/raw`. Send JSON Lines, a JSON array/object, or plain text. Optional header: `X-ObservaLog-Source`.
 
-`DATABASE_URL`, `LISTEN_ADDR`, `DB_MAX_CONNECTIONS` and `LITE_SLOW_THRESHOLD_MS` configure the brain. The default slow-operation threshold is 1000 ms.
+`DATABASE_URL`, `LISTEN_ADDR`, `DB_MAX_CONNECTIONS` and `LITE_SLOW_THRESHOLD_MS` and `LITE_MAX_INFLIGHT_GATE_WORK` configure the brain. The default in-flight durable work cap is 50,000; when it is reached the ingest endpoint returns HTTP 503 so Fluent Bit retries from its filesystem buffer. The default slow-operation threshold is 1000 ms.
 
 ## Processing stages
 
