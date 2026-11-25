@@ -43,10 +43,20 @@ async fn ingest_raw(
     if records.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "no records found".into()));
     }
+    if records.len() > 10_000 {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, "batch exceeds 10000 records".into()));
+    }
 
     let mut accepted = 0usize;
     let mut duplicates = 0usize;
     let mut tx = pool.begin().await.map_err(internal_error)?;
+
+    // Serialize admission decisions briefly so concurrent HTTP batches cannot
+    // collectively exceed the configured durable normalize backlog.
+    sqlx::query("SELECT pg_advisory_xact_lock(7348219901)")
+        .execute(&mut *tx)
+        .await
+        .map_err(internal_error)?;
 
     for (raw_text, source_metadata, source_key) in records {
         let raw_id = Uuid::new_v4().to_string();
@@ -78,6 +88,26 @@ async fn ingest_raw(
         } else {
             duplicates += 1;
         }
+    }
+
+    let max_pending = std::env::var("LITE_MAX_PENDING_NORMALIZE")
+        .ok()
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(50_000);
+    let pending: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM lite_gate_work WHERE gate_name='normalize' AND state IN ('pending','leased')"
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(internal_error)?;
+
+    if pending > max_pending {
+        tx.rollback().await.map_err(internal_error)?;
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("durable normalize queue is full ({pending}/{max_pending}); retry this batch"),
+        ));
     }
 
     tx.commit().await.map_err(internal_error)?;
