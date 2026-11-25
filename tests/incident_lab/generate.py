@@ -256,10 +256,10 @@ def make_clock_skew() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     t = "trc-clock1"
     event(e, "gateway", 0, "Request dispatched", trace=t, span="g-clock", request="req-clock1")
     # The payment host clock is 90 seconds slow; its causal parent relation remains explicit.
-    event(e, -90000, "Payment authorization started", trace=t, span="p-clock",
+    event(e, "payments", -90000, "Payment authorization started", trace=t, span="p-clock",
           parent="g-clock", request="req-clock1", fmt="otel",
           attrs={"host_clock_offset_ms": -90000})
-    event(e, -89920, "Payment authorization succeeded", trace=t, span="p-clock",
+    event(e, "payments", -89920, "Payment authorization succeeded", trace=t, span="p-clock",
           parent="g-clock", request="req-clock1", outcome="success", duration=80,
           fmt="otel", attrs={"host_clock_offset_ms": -90000})
     event(e, 140, "Order confirmed", trace=t, span="o-clock", parent="g-clock",
