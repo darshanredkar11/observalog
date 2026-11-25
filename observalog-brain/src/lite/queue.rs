@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::{PgPool, FromRow};
 use tracing::warn;
@@ -10,6 +11,7 @@ pub struct WorkItem {
     pub raw_text: String,
     pub source_metadata: Value,
     pub payload_id: Option<i64>,
+    pub event_ts: Option<DateTime<Utc>>,
     pub attempts: i32,
 }
 
@@ -18,7 +20,7 @@ pub async fn claim(pool: &PgPool, gate: &str) -> Result<Option<WorkItem>> {
     let item = sqlx::query_as::<_, WorkItem>(
         r#"
         SELECT w.id AS work_id, r.id AS raw_id, r.raw_text, r.source_metadata,
-               w.payload_id, w.attempts
+               w.payload_id, w.event_ts, w.attempts
         FROM lite_gate_work w
         JOIN lite_raw_records r ON r.id = w.raw_id
         WHERE w.gate_name = $1
@@ -48,20 +50,22 @@ pub async fn claim(pool: &PgPool, gate: &str) -> Result<Option<WorkItem>> {
 pub async fn complete(pool: &PgPool, work: &WorkItem, next_gate: Option<&str>, payload_id: Option<i64>) -> Result<()> {
     let mut tx = pool.begin().await?;
     sqlx::query(
-        "UPDATE lite_gate_work SET state='done', lease_until=NULL, last_error=NULL, payload_id=COALESCE($2,payload_id) WHERE id=$1"
+        "UPDATE lite_gate_work SET state='done', lease_until=NULL, last_error=NULL, payload_id=COALESCE($2,payload_id), event_ts=COALESCE($3,event_ts) WHERE id=$1"
     )
     .bind(work.work_id)
     .bind(payload_id)
+    .bind(work.event_ts)
     .execute(&mut *tx)
     .await?;
 
     if let Some(gate) = next_gate {
         sqlx::query(
-            "INSERT INTO lite_gate_work (raw_id, gate_name, payload_id) VALUES ($1,$2,$3) ON CONFLICT (raw_id,gate_name) DO NOTHING"
+            "INSERT INTO lite_gate_work (raw_id, gate_name, payload_id, event_ts) VALUES ($1,$2,$3,$4) ON CONFLICT (raw_id,gate_name) DO NOTHING"
         )
         .bind(&work.raw_id)
         .bind(gate)
         .bind(payload_id.or(work.payload_id))
+        .bind(work.event_ts)
         .execute(&mut *tx)
         .await?;
     }
