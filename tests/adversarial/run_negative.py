@@ -87,7 +87,7 @@ def main():
     signal_count=int(psql("SELECT COUNT(*) FROM lite_signals"))
     finding_count=int(psql("SELECT COUNT(*) FROM lite_findings"))
     short_trace_links=int(psql("SELECT COUNT(*) FROM lite_event_links WHERE evidence->>'trace_id'='A'"))
-    short_trace_flagged=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE quality_flags @> '[\"trace_id_short_unverified\]'::jsonb"))
+    short_trace_flagged=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE quality_flags::text LIKE '%trace_id_short_unverified%'"))
     malformed_preserved=int(psql("SELECT COUNT(*) FROM lite_event_payload WHERE raw_text IN ('{','{not-json}','undefined','Infinity','-Infinity')"))
     assert payload_count==index_count, f"payload/index mismatch {payload_count}/{index_count}"
     assert raw_preserved==payload_count, f"raw payload not preserved for {raw_preserved}/{payload_count}"
