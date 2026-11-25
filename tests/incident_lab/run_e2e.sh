@@ -103,7 +103,7 @@ finding_count="$(psql_query "SELECT COUNT(*) FROM lite_findings")"
 parent_child_count="$(psql_query "SELECT COUNT(*) FROM lite_event_links WHERE relation_type='parent_child'")"
 pending_count="$(psql_query "SELECT COUNT(*) FROM lite_gate_work WHERE state IN ('pending','leased')")"
 dead_count="$(psql_query "SELECT COUNT(*) FROM lite_gate_work WHERE state='dead'")"
-duplicate_count="$(psql_query "SELECT COUNT(*) FROM lite_source_identity")"
+duplicate_count="$((raw_count - index_count))"
 raw_preserved="$(psql_query "SELECT COUNT(*) FROM lite_event_payload")"
 
 printf 'expected=%s raw=%s indexed=%s payloads=%s signals=%s findings=%s parent_child_edges=%s duplicates_suppressed=%s pending=%s dead=%s raw_preserved=%s\n' \
