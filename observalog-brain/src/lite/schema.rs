@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS lite_event_index (
     parent_span_id     TEXT,
     request_id         TEXT,
     business_entity_id TEXT,
+    message_id         TEXT,
+    dependency_name    TEXT,
     event_name         TEXT,
     outcome            TEXT,
     duration_ms        DOUBLE PRECISION,
@@ -90,6 +92,10 @@ CREATE INDEX IF NOT EXISTS lite_event_request_time_idx
     ON lite_event_index (request_id, event_ts DESC);
 CREATE INDEX IF NOT EXISTS lite_event_entity_time_idx
     ON lite_event_index (business_entity_id, event_ts DESC);
+CREATE INDEX IF NOT EXISTS lite_event_message_time_idx
+    ON lite_event_index (message_id, event_ts DESC);
+CREATE INDEX IF NOT EXISTS lite_event_dependency_time_idx
+    ON lite_event_index (dependency_name, event_ts DESC);
 CREATE INDEX IF NOT EXISTS lite_event_service_time_idx
     ON lite_event_index (service, event_ts DESC);
 CREATE INDEX IF NOT EXISTS lite_event_error_time_idx
