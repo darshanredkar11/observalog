@@ -86,7 +86,9 @@ The current Go SDK maps only auth, doc and provider to distinct numeric codes; o
 - Fingerprint lookup as an optimization, not as the identity of an incident.
 - Time-bounded trace queries for chunk pruning.
 
-Before changing schema, validate the current hypertable DDL against the exact TimescaleDB image. In particular, verify unique/primary-key constraints on the time-partitioned table; do not assume the startup DDL is valid solely because it exists in source.
+The current DDL declares `id BIGSERIAL PRIMARY KEY` on `log_index`, then converts it to a hypertable partitioned by `ts`. This unique/primary-key index omits the partitioning column. TimescaleDB documentation states that a unique or primary-key index on a hypertable must include all partitioning columns, including the time column. Therefore this DDL is structurally incompatible with the documented hypertable constraint and should fail at hypertable creation on supported TimescaleDB versions. Confirm against the exact image in an integration test, then redesign the event identity/primary key (for example, a composite key including `ts`, or no uniqueness constraint on the hypertable plus a separate idempotency table).
+
+Reference: https://docs.timescale.com/use-timescale/hypertables/hypertables-and-unique-indexes/
 
 ## What must not be carried forward as assumptions
 
