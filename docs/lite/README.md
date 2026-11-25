@@ -13,15 +13,18 @@ Kafka, Valkey/Redis and an LLM are not required by this runtime. No independent 
 - Canonical adapter: JSON aliases, nested OpenTelemetry-style attributes, Pino numeric levels, common Spring/Python-style text and key/value context; preserves raw text and provenance.
 - Durable stages: normalization, quality, correlation, signal detection and deterministic evidence-based reasoning.
 - Storage: raw journal, canonical JSONB payload, TimescaleDB typed event projection, durable work rows, relationship edges, signals and findings.
-- CI: Rust build, tests and Clippy pass on the current implementation line; incident generator checks pass. The real Fluent Bit → TimescaleDB workflow is still the integration acceptance gate and must be green before this branch is considered release-ready.
+- CI: Rust release build, unit tests and Clippy are green; incident generator checks are green. The final three-permutation Fluent Bit → TimescaleDB acceptance run is in progress and must pass before calling the branch release-ready.
 
-The legacy SDKs and legacy source directories are retained in the branch until the replacement path passes the real end-to-end test. They are not compiled into the current lite binary.
+The branch has been physically reduced to the lite runtime: the brain's compiled source tree contains only the lite modules, and the SDK/Kafka/Valkey/LLM paths are absent from the active repository runtime.
 
 ## Start locally
 
 Requirements: Docker Compose v2 and a working Docker daemon.
 
 ```bash
+cp .env.example .env
+# Replace LITE_INGEST_TOKEN with a random secret of at least 24 bytes.
+set -a; . ./.env; set +a
 docker compose up -d --build
 curl -fsS http://localhost:4000/health
 ```
@@ -32,13 +35,13 @@ The three runtime services are:
 - `brain` — raw-ingest endpoint plus independent workers.
 - `fluent-bit` — tails container logs and `./var/logs/*.log`, writes file offsets to its persistent state volume, buffers output to filesystem and retries HTTP delivery.
 
-For local direct file ingestion, place logs under `./var/logs/`. The HTTP endpoint is `POST http://localhost:4000/ingest/raw`. Send JSON Lines, a JSON array/object, or plain text. Optional header: `X-ObservaLog-Source`.
+For local direct file ingestion, place logs under `./var/logs/`. The HTTP endpoint is `POST http://localhost:4000/ingest/raw`. Send JSON Lines, a JSON array/object, or plain text with `Authorization: Bearer $LITE_INGEST_TOKEN`. Optional header: `X-ObservaLog-Source`. The brain refuses to start without a token of at least 24 bytes; use a secret manager outside local development.
 
-`DATABASE_URL`, `LISTEN_ADDR`, `DB_MAX_CONNECTIONS` and `LITE_SLOW_THRESHOLD_MS` and `LITE_MAX_INFLIGHT_GATE_WORK` configure the brain. The default in-flight durable work cap is 50,000; when it is reached the ingest endpoint returns HTTP 503 so Fluent Bit retries from its filesystem buffer. The default slow-operation threshold is 1000 ms.
+`DATABASE_URL`, `LITE_INGEST_TOKEN`, `LISTEN_ADDR`, `DB_MAX_CONNECTIONS`, `LITE_SLOW_THRESHOLD_MS` and `LITE_MAX_INFLIGHT_GATE_WORK` configure the brain. The default in-flight durable work cap is 50,000; when it is reached the ingest endpoint returns HTTP 503 so Fluent Bit retries from its filesystem buffer. The default slow-operation threshold is 1000 ms.
 
 ## Processing stages
 
-Each gate has its own durable work row in `lite_gate_work`. Workers claim work with row locking and `SKIP LOCKED`; completion and downstream work creation are committed transactionally. Failed work is retried with backoff and marked `dead` after ten attempts. A worker restart can reclaim expired leases.
+Each gate has its own durable work row in `lite_gate_work`. Workers claim work with row locking and `SKIP LOCKED`; outputs and downstream work are committed transactionally. Failed work is retried with backoff and marked `dead` after ten attempts. Per-gate supervisors restart unexpectedly exited workers, and an expired lease can be reclaimed after restart.
 
 1. `normalize` — parse one raw record; preserve source text and source envelope; persist canonical event, provenance and hot typed projection.
 2. `quality` — calculate mapping confidence and report missing or conflicting optional information.
@@ -46,7 +49,7 @@ Each gate has its own durable work row in `lite_gate_work`. Workers claim work w
 4. `detect` — emit bounded event signals such as errors, slow operations, retry activity, error/severity mismatches and business invariant markers.
 5. `reason` — group evidence and write deterministic hypotheses/findings with alternatives and uncertainty.
 
-A missing trace ID is normal input, not a parse failure. The adapter does not invent trace IDs, span IDs, outcomes or durations. Timestamp fallback uses the collector observation time and marks it as inferred.
+A missing trace ID is normal input, not a parse failure. The adapter does not invent trace IDs, span IDs, outcomes or durations. Timestamp fallback uses the durable raw-receipt time (not worker execution time) and marks it as inferred. The request body is capped at 16 MB and total in-flight durable work is capped at 50,000 by default; overload returns HTTP 503 so Fluent Bit retries from its filesystem buffer.
 
 ## Data layout
 
@@ -54,7 +57,7 @@ A missing trace ID is normal input, not a parse failure. The adapter does not in
 - `lite_event_payload`: original raw record, canonical JSON, provenance and quality.
 - `lite_event_index`: typed projection partitioned by event time; its composite `(event_ts,id)` primary key includes the hypertable partition key.
 - `lite_gate_work`: durable independent gate queue, attempts, lease, next-available time and last error.
-- `lite_source_identity`: best-effort source event identity deduplication.
+- `lite_source_identity`: best-effort source event identity deduplication, scoped by collection file, service and instance so local IDs from separate streams do not collide.
 - `lite_event_links`, `lite_signals`, `lite_findings`: correlation graph, event signals and current finding materialization.
 
 ## Verification
