@@ -1,12 +1,12 @@
 services:
   timescaledb:
-    image: timescale/timescaledb-ha:pg16-latest
+    image: timescale/timescaledb:2.31.2-pg16
     environment:
       POSTGRES_USER: observalog
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-observalog}
       POSTGRES_DB: observalog
     volumes:
-      - timescaledb_data:/home/postgres/pgdata/data
+      - timescaledb_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
