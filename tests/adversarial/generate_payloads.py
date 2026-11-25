@@ -55,30 +55,31 @@ def build(seed: int = 20261125, repetitions: int = 10) -> list[str]:
     payloads=[]
     for rep in range(repetitions):
         for index, case in enumerate(cases):
-            event = {
-                "source_event_id": f"adv-{rep:02d}-{index:04d}",
-                "source_name": "adversarial-corpus",
-                "test_rep": rep,
-                "test_case": index,
-                "payload": case,
-            }
+            if isinstance(case, dict):
+                event=dict(case)
+                event.setdefault("event_id", f"adv-{rep:02d}-{index:04d}")
+                event.setdefault("source_name", "adversarial-corpus")
+                event["test_rep"]=rep
+                event["test_case"]=index
+            else:
+                event={
+                    "event_id": f"adv-{rep:02d}-{index:04d}",
+                    "source_name": "adversarial-corpus",
+                    "message": str(case),
+                    "test_payload": case,
+                    "test_rep": rep,
+                    "test_case": index,
+                }
             payloads.append(json.dumps(event, ensure_ascii=False, separators=(",", ":")))
-    # Add intentionally malformed raw strings and syntactically plausible prose.
+    # Intentionally malformed JSON and unstructured prose: these remain raw text
+    # records rather than being wrapped into a valid JSON envelope.
     malformed = [
         "{", "{not-json}", "{\"message\":\"unterminated}", "{\"timestamp\":NaN}",
         "[1,2,3", "null trailing", "undefined", "Infinity", "-Infinity",
         "2026-11-25 ERROR [payments] timeout trace_id=trace-x request_id=req-y",
         "a=b c=d ERROR message with key=value inside prose",
     ]
-    for rep in range(repetitions):
-        for index, raw in enumerate(malformed):
-            payloads.append(json.dumps({
-                "source_event_id": f"adv-malformed-{rep}-{index}",
-                "source_name": "adversarial-malformed",
-                "test_rep": rep,
-                "test_case": "malformed",
-                "payload": raw,
-            }, ensure_ascii=False))
+    payloads.extend(malformed * repetitions)
     rng.shuffle(payloads)
     return payloads
 
