@@ -568,9 +568,13 @@ def build_case(name: str, seed: int, shuffle: bool, duplicate_rate: float,
         records.sort(key=lambda x: x["offset_ms"])
 
     raw = [render(x) for x in records]
+    malformed_count = 0
+    if name == "poison-record-isolation":
+        raw.insert(min(2, len(raw)), '{"timestamp":"2026-11-25T12:00:00.015Z","level": ERROR, "message": "truncated JSON"')
+        malformed_count = 1
     manifest = {
         "scenario": name, "seed": seed, "permutation": permutation,
-        "records": len(raw), "formats": sorted({x["format"] for x in events}),
+        "records": len(raw), "malformed_records": malformed_count, "formats": sorted({x["format"] for x in events}),
         "arrival_shuffled": shuffle, "duplicated_event_ids": duplicate_ids,
         "dropped_optional_fields": dropped,
         "raw_is_the_only_directory_to_mount_into_fluent_bit": True,
