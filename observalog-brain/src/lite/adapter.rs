@@ -160,10 +160,18 @@ fn parse_text_record(raw: &str) -> Value {
             }
         }
     }
-    if !fields.contains_key("service") && tokens.len() >= 3 {
-        let candidate = tokens.get(2).copied().unwrap_or_default().trim_matches(|ch: char| ch == '[' || ch == ']');
-        if !candidate.is_empty() && !candidate.contains('=') && !candidate.starts_with('[') {
-            fields.insert("service".into(), json!(candidate));
+    if !fields.contains_key("service") {
+        let severity_index = tokens.iter().position(|token| {
+            let candidate = token.trim_matches(|ch: char| matches!(ch, '[' | ']' | ':' | ','));
+            normalize_severity(&Value::String(candidate.to_string())).is_some()
+        });
+        if let Some(index) = severity_index {
+            if let Some(candidate) = tokens.get(index + 1) {
+                let candidate = candidate.trim_matches(|ch: char| ch == '[' || ch == ']');
+                if !candidate.is_empty() && !candidate.contains('=') && !candidate.starts_with('[') {
+                    fields.insert("service".into(), json!(candidate));
+                }
+            }
         }
     }
 
@@ -203,6 +211,24 @@ fn find_key<'a>(value: &'a Value, key: &str, path: &str) -> Option<(&'a Value, S
         Value::Object(map) => {
             if let Some(v) = map.get(key) {
                 return Some((v, format!("{path}.{key}")));
+            }
+            if key.contains('.') {
+                let mut cursor = value;
+                let mut source_path = path.to_string();
+                let mut matched = true;
+                for part in key.split('.') {
+                    if let Some(next) = cursor.get(part) {
+                        cursor = next;
+                        source_path.push('.');
+                        source_path.push_str(part);
+                    } else {
+                        matched = false;
+                        break;
+                    }
+                }
+                if matched {
+                    return Some((cursor, source_path));
+                }
             }
             for (child_key, child) in map {
                 if let Some(found) = find_key(child, key, &format!("{path}.{child_key}")) {
