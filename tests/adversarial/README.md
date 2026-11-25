@@ -95,3 +95,19 @@ This is not a mathematical proof or a fuzzing campaign of every byte sequence. I
 7. Malicious input safety (pathological text, deeply nested JSON, very large arrays, invalid UTF-8 transport)
 
 A test suite exposes regressions and establishes bounded confidence. It must never be called full proof.
+
+
+## Gate 2 - Quality assessment result
+
+Verified native CI run (no Docker): https://github.com/darshanredkar11/observalog/actions/runs/45632269368
+
+- **7 Gate 2 adversarial tests passed**
+- Complete, partial and empty field mapping scores
+- Missing optional data flags
+- Malformed flags and non-string flag values
+- Duplicate and distinct conflict penalties
+- Score clamping under a 1,000-distinct-conflict stress case
+- Stable, sorted, deduplicated output
+
+Failure found and fixed: duplicate conflict flags were counted repeatedly before deduplication, artificially lowering the quality score (same conflict repeated 3 times scored 0.55 instead of 0.85). Flags are now deduplicated before scoring. The quality output now identifies the score as heuristic mapping completeness and no longer hard-claims source retention that the assessment itself cannot verify.
+
