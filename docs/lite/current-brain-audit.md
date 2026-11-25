@@ -77,6 +77,26 @@ The call graph uses `log_index.<id>` as its event name instead of retrieving the
 
 The current Go SDK maps only auth, doc and provider to distinct numeric codes; other service names map to system. The new model must support arbitrary service names and instances without mapping all unknown services into one identity.
 
+### 11. Some SDK metadata declared in the contract never reaches the wire
+
+The Go `Config` contains version, environment and host, and the contract reference describes version/host/env/tenant as ambient fields. But the shown `Init` path does not retain those values in emitter state, `LogEntry` does not carry them, and the two-part encoder does not serialize them. Tenant ID is also present in context helpers but not extracted by `emit.go` or encoded by `wire.go`. The current brain therefore cannot perform reliable release, environment, host or tenant comparisons from these SDK records.
+
+### 12. Background logging can fragment its own trace and sequence
+
+When `emitLine` finds no sequence counter, it creates one and adds it to a local copy of the context. That modified context is not returned to the caller, so subsequent emit calls using the original context start at sequence 1 again. The same applies to graceful degradation: without boundary middleware, each emit can receive a different generated `sys_` trace ID. HTTP middleware supplies a request-scoped trace and sequence, but unwrapped background jobs do not get stable task-level identity automatically.
+
+### 13. The emitter can drop one half of a wire event
+
+The Go emitter sends Part A and Part B as two independent non-blocking channel writes. If the buffer is full between those writes, either half can be dropped independently. The counter increments, but the pair is not an atomic emission unit. This compounds the Fluent Bit/Kafka message-boundary mismatch.
+
+### 14. The known-issue record can store the wrong error code
+
+In the WebSocket triage flow, the value passed as `error_code` to `dedup::record` is populated from the failing service number converted to text, not the error object's code. The fingerprint is generated from the actual parsed error code, but the descriptive metadata stored beside it can be wrong.
+
+### 15. Repair escalation behavior disagrees with the documented policy
+
+The README marks DATABASE_FIX, CONFIG_FIX and RESOURCE_EXHAUSTED for escalation, but `RepairId::requires_escalation()` returns true only for CONSISTENCY_FIX and UNKNOWN. A downstream consumer relying on that method can treat a category as safe when the documentation says it requires human review.
+
 ## TimescaleDB assets worth preserving and validating
 
 - Separate hot typed index from full JSONB payload.
