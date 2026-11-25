@@ -111,7 +111,7 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
         ("trace_id", &["trace_id", "traceId", "trace.id", "trace", "x_trace_id"][..]),
         ("request_id", &["request_id", "requestId", "correlation_id", "correlationId", "correlationID", "x_request_id"][..]),
         ("business_entity_id", &["business_entity_id", "entity_id", "order_id", "orderId", "payment_id", "document_id", "doc_id", "workflow_id", "transaction_id", "export_id"][..]),
-        ("severity", &["severity_text", "severity", "level", "log.level", "levelname"][..]),
+        ("severity", &["severity_text", "severity", "severity_number", "level", "log.level", "levelname"][..]),
         ("duration", &["duration_ms", "durationMs", "elapsed_ms", "latency_ms", "duration"][..]),
     ] {
         if aliases_conflict(root, aliases) {
