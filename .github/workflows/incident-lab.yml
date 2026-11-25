@@ -44,3 +44,5 @@ jobs:
           assert len(poison) == 3 and all(p["malformed_records"] == 1 for p in poison)
           print("verified 21 scenarios × 3 arrival permutations; truth remains outside raw/")
           PY
+
+# Generator validation runs only on the incident corpus paths.
