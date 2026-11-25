@@ -212,7 +212,8 @@ fn quality_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dy
             event.service.is_some(), event.severity.is_some(), event.message.is_some(),
             !event.event_ts_inferred, event.trace_id.is_some(), event.request_id.is_some(),
         ].into_iter().filter(|present| *present).count();
-        let score = mapped as f64 / 6.0;
+        let conflict_count = flags.iter().filter(|flag| flag.starts_with("conflicting_")).count();
+        let score = (mapped as f64 / 6.0 - conflict_count as f64 * 0.15).clamp(0.0, 1.0);
         flags.sort();
         flags.dedup();
         let quality = json!({
@@ -356,6 +357,19 @@ fn detect_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
         if event.outcome.as_deref() == Some("failure") {
             signals.push(("business_or_operation_failure","high",json!({"outcome":event.outcome.as_deref()})));
         }
+        if event.error_code.is_some() || event.error_kind.is_some() || event.error_message.is_some() {
+            signals.push(("error_payload_present","medium",json!({
+                "error_code":event.error_code.as_deref(),
+                "error_kind":event.error_kind.as_deref(),
+                "severity":severity
+            })));
+            if matches!(severity, "INFO" | "DEBUG" | "TRACE") {
+                signals.push(("error_payload_level_mismatch","medium",json!({
+                    "error_code":event.error_code.as_deref(),
+                    "severity":severity
+                })));
+            }
+        }
         let threshold = std::env::var("LITE_SLOW_THRESHOLD_MS").ok()
             .and_then(|s| s.parse::<f64>().ok()).unwrap_or(1000.0);
         if event.duration_ms.is_some_and(|value| value >= threshold) {
@@ -379,7 +393,10 @@ fn detect_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
         }
         sqlx::query("UPDATE lite_gate_work SET state='done', lease_until=NULL, event_ts=$2, last_error=NULL WHERE id=$1")
             .bind(work.work_id).bind(event.event_ts).execute(&mut *tx).await?;
-        if !signals.is_empty() {
+        let existing_signal: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM lite_signals WHERE event_id=$1)"
+        ).bind(payload_id).fetch_one(&mut *tx).await?;
+        if !signals.is_empty() || existing_signal {
             sqlx::query("INSERT INTO lite_gate_work (raw_id,gate_name,payload_id,event_ts) VALUES ($1,'reason',$2,$3) ON CONFLICT (raw_id,gate_name) DO NOTHING")
                 .bind(&work.raw_id).bind(payload_id).bind(event.event_ts).execute(&mut *tx).await?;
         }
@@ -550,7 +567,7 @@ fn classify_hypothesis(error_code: Option<&str>, service: Option<&str>, severity
         ("authentication_or_identity_configuration".into(),format!("Identity validation failed in {service}; compare issuer, audience, credential and clock configuration."),0.78)
     } else if ["CONFIG","FLAG","SECRET","SETTING","ENV_MISSING"].iter().any(|v|code.contains(v)) {
         ("configuration".into(),format!("Configuration-related failure reported by {service}; compare effective configuration across instances and environments."),0.72)
-    } else if ["DEADLOCK","SQL","DB_","DATABASE","CONNECTION_POOL"].iter().any(|v|code.contains(v)) {
+    } else if ["DEADLOCK","SQL","DB_","DATABASE","CONNECTION_POOL","40P01","40001"].iter().any(|v|code.contains(v)) {
         ("database_or_concurrency".into(),format!("Database or concurrency failure reported by {service}; inspect transaction ordering, lock waits and pool utilization."),0.74)
     } else if ["429","503","504","TIMEOUT","DNS","EAI_AGAIN","UPSTREAM","RATE_LIMIT"].iter().any(|v|code.contains(v)) {
         ("external_dependency_or_network".into(),format!("Dependency/network failure reported by {service}; inspect upstream health, response codes, latency and retry policy."),0.76)
