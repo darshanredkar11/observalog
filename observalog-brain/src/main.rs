@@ -17,6 +17,9 @@ async fn main() -> Result<()> {
 
     let database_url = std::env::var("DATABASE_URL")
         .context("DATABASE_URL is required")?;
+    let ingest_token = std::env::var("LITE_INGEST_TOKEN")
+        .context("LITE_INGEST_TOKEN is required to protect raw ingestion")?;
+    anyhow::ensure!(ingest_token.len() >= 24, "LITE_INGEST_TOKEN must be at least 24 bytes");
     let max_connections = std::env::var("DB_MAX_CONNECTIONS")
         .ok()
         .and_then(|value| value.parse::<u32>().ok())
@@ -34,7 +37,7 @@ async fn main() -> Result<()> {
 
     lite::start_workers(pool.clone()).await;
 
-    let app = http::router(pool);
+    let app = http::router(pool, ingest_token);
     let address: SocketAddr = std::env::var("LISTEN_ADDR")
         .unwrap_or_else(|_| "0.0.0.0:4000".to_string())
         .parse()
