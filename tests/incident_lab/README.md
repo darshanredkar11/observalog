@@ -68,6 +68,7 @@ To test Fluent Bit, mount only the generated `raw/` directory as an input. Keep 
 | mixed-format-sparse-logs | 3 | Sparse text/JSON formats and partial correlation |
 | two-incidents-one-window | 2 | Two independent root causes in one time window |
 | trace-id-reuse | 3 | Trace ID reused across distinct requests |
+| twelve-service-fanout | 12 | Large distributed fan-out with a tax-provider trigger and downstream symptoms |
 
 The generator uses Java/Spring-style JSON and text, Node/Pino-style JSON, OpenTelemetry-style nested JSON, Python logging text, Nginx access JSON, PostgreSQL text and unknown-alias JSON.
 
