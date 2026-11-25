@@ -52,7 +52,7 @@ async fn ingest_raw(
     let mut tx = pool.begin().await.map_err(internal_error)?;
 
     // Serialize admission decisions briefly so concurrent HTTP batches cannot
-    // collectively exceed the configured durable normalize backlog.
+    // collectively exceed the configured durable gate backlog.
     sqlx::query("SELECT pg_advisory_xact_lock(7348219901)")
         .execute(&mut *tx)
         .await
@@ -90,13 +90,13 @@ async fn ingest_raw(
         }
     }
 
-    let max_pending = std::env::var("LITE_MAX_PENDING_NORMALIZE")
+    let max_pending = std::env::var("LITE_MAX_INFLIGHT_GATE_WORK")
         .ok()
         .and_then(|value| value.parse::<i64>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(50_000);
     let pending: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM lite_gate_work WHERE gate_name='normalize' AND state IN ('pending','leased')"
+        "SELECT COUNT(*) FROM lite_gate_work WHERE state IN ('pending','leased')"
     )
     .fetch_one(&mut *tx)
     .await
@@ -106,7 +106,7 @@ async fn ingest_raw(
         tx.rollback().await.map_err(internal_error)?;
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            format!("durable normalize queue is full ({pending}/{max_pending}); retry this batch"),
+            format!("durable gate queue is full ({pending}/{max_pending}); retry this batch"),
         ));
     }
 
