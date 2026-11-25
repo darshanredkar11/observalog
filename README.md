@@ -66,7 +66,7 @@ curl -X POST http://localhost:4000/ingest/raw \
   --data-binary '{"timestamp":"2026-11-25T12:00:00Z","level":"ERROR","service":"checkout","trace_id":"t-001","message":"Payment provider timed out","error_code":"UPSTREAM_TIMEOUT"}'
 ```
 
-A successful response is HTTP 202 only after the raw record and normalization work item are durably committed.
+A successful response is HTTP 202 only after the raw record and normalization work item are durably committed. Requests are limited to 16 MB. The durable in-flight gate queue is bounded (default 50,000 pending/leased work items); when full, ingest returns HTTP 503 and Fluent Bit retries from its filesystem buffer.
 
 ## Brain gates
 
@@ -86,7 +86,7 @@ A finding is a hypothesis, not a root-cause guarantee. The current deterministic
 - `lite_gate_work`: independently leased/retried durable work for each gate.
 - `lite_event_links`: explicit correlation and parent/child edges.
 - `lite_signals`: deterministic behavioral signals.
-- `lite_findings`: versioned incident hypotheses with evidence references.
+- `lite_findings`: incident hypotheses with evidence references and replay-stable event-time/occurrence counters.
 
 ## Incident lab
 
