@@ -21,7 +21,7 @@ No Anthropic key, Kafka broker or Valkey server is required.
 - `GET /health`
 - `POST /ingest/raw` — accepts one JSON record, a JSON array, JSON Lines or raw text.
 
-The endpoint requires `Authorization: Bearer <LITE_INGEST_TOKEN>` and returns HTTP 202 after the raw journal row and normalization work item commit in one database transaction. If persistence is unavailable or the bounded durable gate queue is full it returns 503, allowing Fluent Bit to retry from its filesystem buffer. The HTTP request-body limit is 16 MB.
+The endpoint requires `X-ObservaLog-Token: <LITE_INGEST_TOKEN>` and returns HTTP 202 after the raw journal row and normalization work item commit in one database transaction. If persistence is unavailable or the bounded durable gate queue is full it returns 503, allowing Fluent Bit to retry from its filesystem buffer. The HTTP request-body limit is 16 MB.
 
 ## Delivery and recovery
 
