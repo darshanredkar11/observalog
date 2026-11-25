@@ -253,7 +253,7 @@ fn correlate_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<
                       severity,trace_id,span_id,parent_span_id,request_id,business_entity_id,outcome,error_code
                FROM lite_event_index WHERE id=$1 AND event_ts=$2 LIMIT 1"#
         ).bind(payload_id).bind(work.event_ts.context("gate work has no event timestamp")?).fetch_one(&mut *tx).await?;
-        let trace = current.trace_id.clone().filter(|v| !v.starts_with("sys_"));
+        let trace = current.trace_id.clone().filter(|v| usable_trace_id(v));
         let request = current.request_id.clone();
         let entity = current.business_entity_id.clone();
         if trace.is_some() || request.is_some() || entity.is_some() {
@@ -286,7 +286,7 @@ fn correlate_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<
                 let tenant_conflict = current.tenant_id.as_ref().zip(other.tenant_id.as_ref())
                     .is_some_and(|(left,right)| left != right);
                 let same_trace = current.trace_id.as_ref().is_some_and(|v|
-                    !v.starts_with("sys_") && Some(v) == other.trace_id.as_ref());
+                    usable_trace_id(v) && Some(v) == other.trace_id.as_ref());
 
                 if same_trace && (request_conflict || entity_conflict || tenant_conflict) {
                     let evidence = json!({
@@ -416,6 +416,12 @@ fn detect_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn
         tx.commit().await?;
         Ok(())
     })
+}
+
+fn usable_trace_id(value: &str) -> bool {
+    // Short custom IDs are retained but too collision-prone to form strong
+    // cross-event correlations. Correlate custom systems through request/business keys.
+    !value.starts_with("sys_") && value.trim().len() >= 8
 }
 
 fn contains_retry_marker(value: &Value) -> bool {
@@ -598,5 +604,19 @@ fn classify_hypothesis(error_code: Option<&str>, service: Option<&str>, severity
         ("application_failure".into(),format!("{service} emitted a failure signal, but the root-cause category is not yet established."),0.48)
     } else {
         ("insufficient_evidence".into(),format!("A signal was emitted by {service}, but available fields do not support a specific cause."),0.25)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::usable_trace_id;
+
+    #[test]
+    fn short_or_system_trace_ids_are_not_usable_for_correlation() {
+        assert!(!usable_trace_id("A"));
+        assert!(!usable_trace_id("sys_generated_123456"));
+        assert!(!usable_trace_id("   "));
+        assert!(usable_trace_id("12345678"));
+        assert!(usable_trace_id("4bf92f3577b34da6a3ce929d0e0e4736"));
     }
 }
