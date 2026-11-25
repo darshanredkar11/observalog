@@ -213,16 +213,18 @@ fn assess_quality(event: &CanonicalEvent) -> Value {
         event.service.is_some(), event.severity.is_some(), event.message.is_some(),
         !event.event_ts_inferred, event.trace_id.is_some(), event.request_id.is_some(),
     ].into_iter().filter(|present| *present).count();
-    let conflict_count = flags.iter().filter(|flag| flag.starts_with("conflicting_")).count();
-    let score = (mapped as f64 / 6.0 - conflict_count as f64 * 0.15).clamp(0.0, 1.0);
+    // Deduplicate before scoring: duplicate delivery or duplicate flags must not
+    // amplify the quality penalty for the same conflict.
     flags.sort();
     flags.dedup();
+    let conflict_count = flags.iter().filter(|flag| flag.starts_with("conflicting_")).count();
+    let score = (mapped as f64 / 6.0 - conflict_count as f64 * 0.15).clamp(0.0, 1.0);
     json!({
         "format": event.quality["format"],
         "flags": flags,
         "mapping_confidence": score,
         "event_ts_inferred": event.event_ts_inferred,
-        "source_fields_preserved": true
+        "mapping_confidence_type": "heuristic_mapping_completeness"
     })
 }
 
@@ -655,6 +657,8 @@ mod gate2_quality_tests {
         assert_eq!(q["flags"],json!([]));
         assert_eq!(q["format"],"json");
         assert_eq!(q["event_ts_inferred"],false);
+        assert_eq!(q["mapping_confidence_type"],"heuristic_mapping_completeness");
+        assert_eq!(q.get("source_fields_preserved"),None);
     }
 
     #[test]
