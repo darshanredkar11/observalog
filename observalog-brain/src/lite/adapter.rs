@@ -415,4 +415,25 @@ mod tests {
         assert_eq!(event.trace_id.as_deref(), Some("trace-1"));
         assert_eq!(event.business_entity_id.as_deref(), Some("order-2"));
     }
+
+    #[test]
+    fn nested_otel_service_resource_is_mapped() {
+        let event = adapt(r#"{"timestamp":"2026-11-25T12:00:00Z","severity_text":"WARN","body":"slow query","resource":{"service":{"name":"billing"},"attributes":{"host.name":"billing-2"}}}"#, &json!({}), now());
+        assert_eq!(event.service.as_deref(), Some("billing"));
+        assert_eq!(event.instance.as_deref(), Some("billing-2"));
+    }
+
+    #[test]
+    fn conflicting_aliases_are_reported_not_silently_hidden() {
+        let event = adapt(r#"{"timestamp":"2026-11-25T12:00:00Z","service":"orders-a","serviceName":"orders-b","message":"failed","level":"ERROR"}"#, &json!({}), now());
+        assert_eq!(event.service.as_deref(), Some("orders-a"));
+        assert!(event.quality["flags"].as_array().unwrap().iter().any(|flag| flag == "conflicting_service_aliases"));
+    }
+
+    #[test]
+    fn malformed_json_is_preserved_as_text_and_flagged() {
+        let event = adapt(r#"{"timestamp": "broken", "level":ERROR}"#, &json!({}), now());
+        assert!(event.quality["flags"].as_array().unwrap().iter().any(|flag| flag == "json_parse_failed_preserved_as_text"));
+        assert!(event.message.unwrap().contains("broken"));
+    }
 }
