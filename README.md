@@ -47,6 +47,7 @@ The adapter never invents trace IDs, spans, outcome or duration. Missing informa
 ```bash
 cp .env.example .env
 # Replace LITE_INGEST_TOKEN with a random secret (at least 24 bytes).
+set -a; . ./.env; set +a
 docker compose up -d --build
 ```
 
