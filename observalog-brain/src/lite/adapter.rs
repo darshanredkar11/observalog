@@ -57,19 +57,19 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
     record_source_path(root, &["span_id", "spanId", "span.id", "span"], "span_id", &mut provenance);
     let parent_span_id = text_field(root, &["parent_span_id", "parentSpanId", "parent_span", "parentSpan"]);
     record_source_path(root, &["parent_span_id", "parentSpanId", "parent_span", "parentSpan"], "parent_span_id", &mut provenance);
-    let request_id = text_field(root, &["request_id", "requestId", "correlation_id", "correlationId", "correlationID", "x_request_id"]);
-    record_source_path(root, &["request_id", "requestId", "correlation_id", "correlationId", "correlationID", "x_request_id"], "request_id", &mut provenance);
+    let request_id = text_field(root, &["request_id", "requestId", "request.id", "correlation_id", "correlationId", "correlationID", "x_request_id"]);
+    record_source_path(root, &["request_id", "requestId", "request.id", "correlation_id", "correlationId", "correlationID", "x_request_id"], "request_id", &mut provenance);
     let business_entity_id = text_field(root, &[
-        "business_entity_id", "entity_id", "order_id", "orderId", "payment_id",
-        "document_id", "doc_id", "workflow_id", "transaction_id", "export_id"
+        "business_entity_id", "entity_id", "order_id", "orderId", "order.id", "payment_id", "payment.id",
+        "document_id", "document.id", "doc_id", "workflow_id", "workflow.id", "transaction_id", "transaction.id", "export_id", "export.id"
     ]);
-    record_source_path(root, &["business_entity_id", "entity_id", "order_id", "orderId", "payment_id", "document_id", "doc_id", "workflow_id", "transaction_id", "export_id"], "business_entity_id", &mut provenance);
+    record_source_path(root, &["business_entity_id", "entity_id", "order_id", "orderId", "order.id", "payment_id", "payment.id", "document_id", "document.id", "doc_id", "workflow_id", "workflow.id", "transaction_id", "transaction.id", "export_id", "export.id"], "business_entity_id", &mut provenance);
     let message_id = text_field(root, &["message_id", "messageId", "messaging.message.id", "kafka_message_id", "kafkaMessageId", "delivery_id"]);
     record_source_path(root, &["message_id", "messageId", "messaging.message.id", "kafka_message_id", "kafkaMessageId", "delivery_id"], "message_id", &mut provenance);
     let dependency_name = text_field(root, &["dependency_name", "dependency_host", "upstream_host", "provider", "server.address", "net.peer.name", "db.system"]);
     record_source_path(root, &["dependency_name", "dependency_host", "upstream_host", "provider", "server.address", "net.peer.name", "db.system"], "dependency_name", &mut provenance);
-    let source_event_id = text_field(root, &["event_id", "eventId", "log_id", "logId", "record_id", "recordId"]);
-    record_source_path(root, &["event_id", "eventId", "log_id", "logId", "record_id", "recordId"], "source_event_id", &mut provenance);
+    let source_event_id = text_field(root, &["event_id", "eventId", "event.id", "log_id", "logId", "log.id", "record_id", "recordId"]);
+    record_source_path(root, &["event_id", "eventId", "event.id", "log_id", "logId", "log.id", "record_id", "recordId"], "source_event_id", &mut provenance);
     let event_name = text_field(root, &["event_name", "eventName", "event.name", "event", "operation"]);
     record_source_path(root, &["event_name", "eventName", "event.name", "event", "operation"], "event_name", &mut provenance);
     let message = text_field(root, &["message", "msg", "body", "log", "log_message"])
@@ -429,6 +429,18 @@ mod tests {
         assert_eq!(event.instance.as_deref(), Some("billing-2"));
         assert_eq!(event.trace_id, None);
         assert_eq!(event.severity.as_deref(), Some("WARN"));
+    }
+
+    #[test]
+    fn maps_otel_dotted_event_request_and_business_ids() {
+        let event = adapt(
+            r#"{"timestamp":"2026-11-25T12:00:00Z","severity_text":"INFO","body":"order accepted","resource":{"service":{"name":"orders"}},"attributes":{"event.id":"evt-1","request.id":"req-1","order.id":"ord-1"}}"#,
+            &json!({}),
+            now(),
+        );
+        assert_eq!(event.source_event_id.as_deref(), Some("evt-1"));
+        assert_eq!(event.request_id.as_deref(), Some("req-1"));
+        assert_eq!(event.business_entity_id.as_deref(), Some("ord-1"));
     }
 
     #[test]
