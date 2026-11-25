@@ -51,7 +51,7 @@ set -a; . ./.env; set +a
 docker compose up -d --build
 ```
 
-The three runtime components are TimescaleDB, brain and Fluent Bit. The brain refuses to start without `LITE_INGEST_TOKEN` (minimum 24 bytes); replace the example token before exposing the stack beyond a local development machine.
+The three runtime components are TimescaleDB, brain and Fluent Bit. Published ports bind to loopback only for local development. Do not expose the plain-HTTP ingest endpoint on an untrusted network; use a private network or TLS-terminating ingress. The brain refuses to start without `LITE_INGEST_TOKEN` (minimum 24 bytes); replace the example token before exposing the stack beyond a local development machine.
 
 - Brain health: `http://localhost:4000/health`
 - Raw log ingest: `POST http://localhost:4000/ingest/raw`
