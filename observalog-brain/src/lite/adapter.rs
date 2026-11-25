@@ -507,3 +507,122 @@ mod tests {
         assert!(event.message.unwrap().contains("broken"));
     }
 }
+
+
+#[cfg(test)]
+mod gate1_adversarial_tests {
+    use super::*;
+    use serde_json::json;
+    use chrono::{DateTime, Utc};
+
+    fn observed() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2026-11-25T12:00:00Z").unwrap().with_timezone(&Utc)
+    }
+
+    // Gate 1 contract: normalization is tolerant and deterministic, but it must
+    // not manufacture semantics from invalid values. Raw text is preserved by
+    // the caller; this gate only produces bounded, defensible canonical fields.
+    #[test]
+    fn null_empty_scalar_and_array_inputs_never_panic_or_invent_fields() {
+        for raw in ["", "   ", "null", "true", "false", "0", "42", "\"text\"", "[]", "[1,2]", "{}"] {
+            let event = adapt(raw, &json!({}), observed());
+            assert_eq!(event.event_ts, observed(), "raw={raw:?}");
+            assert!(event.event_ts_inferred, "raw={raw:?}");
+            assert_eq!(event.service, None, "raw={raw:?}");
+            assert_eq!(event.trace_id, None, "raw={raw:?}");
+            assert_eq!(event.outcome, None, "raw={raw:?}");
+            assert_eq!(event.duration_ms, None, "raw={raw:?}");
+        }
+    }
+
+    #[test]
+    fn missing_and_null_aliases_remain_missing() {
+        for raw in [
+            r#"{"service":null,"trace_id":null,"request_id":null,"duration_ms":null,"outcome":null}"#,
+            r#"{"service":"","trace_id":"","request_id":"","duration_ms":"","outcome":""}"#,
+            r#"{"service":[],"trace_id":{},"request_id":false,"duration_ms":[],"outcome":{}}"#,
+        ] {
+            let event=adapt(raw,&json!({}),observed());
+            assert_eq!(event.service,None, "raw={raw}");
+            assert_eq!(event.trace_id,None, "raw={raw}");
+            assert_eq!(event.request_id,None, "raw={raw}");
+            assert_eq!(event.duration_ms,None, "raw={raw}");
+            assert_eq!(event.outcome,None, "raw={raw}");
+        }
+    }
+
+    #[test]
+    fn nested_noise_does_not_override_top_level_canonical_fields() {
+        let raw=r#"{"message":"top message","service":"payments","trace_id":"trace-top-12345678","duration_ms":12,"error":{"message":"nested error message","service":"fake-service","trace_id":"trace-fake-12345678","duration_ms":999}}"#;
+        let event=adapt(raw,&json!({}),observed());
+        assert_eq!(event.message.as_deref(),Some("top message"));
+        assert_eq!(event.service.as_deref(),Some("payments"));
+        assert_eq!(event.trace_id.as_deref(),Some("trace-top-12345678"));
+        assert_eq!(event.duration_ms,Some(12.0));
+    }
+
+    #[test]
+    fn invalid_negative_nan_and_infinite_durations_are_not_canonicalized() {
+        for value in ["-1", "\"-1\"", "\"NaN\"", "\"Infinity\"", "\"-Infinity\"", "\"1e9999\""] {
+            let raw=format!(r#"{{"duration_ms":{value},"message":"duration probe"}}"#);
+            let event=adapt(&raw,&json!({}),observed());
+            assert_eq!(event.duration_ms,None, "value={value}");
+        }
+    }
+
+    #[test]
+    fn duration_alias_conflicts_are_flagged_and_not_arbitrarily_silenced() {
+        let event=adapt(r#"{"duration_ms":100,"latency_ms":900,"message":"alias conflict"}"#,&json!({}),observed());
+        assert!(event.quality["flags"].as_array().unwrap().iter().any(|f|f=="conflicting_duration_aliases"));
+    }
+
+    #[test]
+    fn timestamp_extremes_and_invalid_formats_fall_back_to_observed_time() {
+        for raw in [
+            r#"{"timestamp":"2026-99-99T88:77:66Z"}"#,
+            r#"{"timestamp":"not a timestamp"}"#,
+            r#"{"timestamp":1e300}"#,
+            r#"{"timestamp":-1e300}"#,
+            r#"{"timestamp":"NaN"}"#,
+        ] {
+            let event=adapt(raw,&json!({}),observed());
+            assert_eq!(event.event_ts,observed(), "raw={raw}");
+            assert!(event.event_ts_inferred, "raw={raw}");
+        }
+    }
+
+    #[test]
+    fn unknown_severity_and_outcome_are_not_forced_into_known_buckets() {
+        let event=adapt(r#"{"severity_text":"ALIEN","outcome":"maybe","message":"uncertain"}"#,&json!({}),observed());
+        assert_eq!(event.severity,None);
+        assert_eq!(event.outcome.as_deref(),Some("maybe"));
+    }
+
+    #[test]
+    fn prose_mentions_of_fields_are_not_structural_fields() {
+        let raw="The user said service=payments trace_id=short duration_ms=-99 but these are quoted words, not structured JSON.";
+        let event=adapt(raw,&json!({}),observed());
+        // Unstructured text may be retained as a message, but identifiers and
+        // measurements should not be promoted from incidental prose.
+        assert_eq!(event.trace_id,None);
+        assert_eq!(event.duration_ms,None);
+    }
+
+    #[test]
+    fn malformed_and_truncated_json_is_retained_as_text() {
+        for raw in ["{", "{not-json}", r#"{"message":"unterminated}"#, r#"{"timestamp":NaN}"#, "[1,2,3"] {
+            let event=adapt(raw,&json!({}),observed());
+            assert!(event.message.as_deref().unwrap_or_default().contains(raw.trim()) || event.message.is_some(), "raw={raw:?}");
+            assert!(event.quality["flags"].as_array().unwrap().iter().any(|f|f=="json_parse_failed_preserved_as_text") || !raw.trim_start().starts_with('{'));
+        }
+    }
+
+    #[test]
+    fn long_and_multilingual_records_are_preserved_without_panics() {
+        let raw=format!("ERROR service=payments message={} हिन्दी मराठी 日本語 العربية 🚨", "x".repeat(270_000));
+        let event=adapt(&raw,&json!({"source_name":"adversarial"}),observed());
+        assert!(event.quality["flags"].as_array().unwrap().iter().any(|f|f=="large_record"));
+        assert!(event.message.as_deref().unwrap_or_default().contains("मराठी"));
+        assert_eq!(event.source_name.as_deref(),Some("adversarial"));
+    }
+}
