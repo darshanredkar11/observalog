@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS lite_gate_work (
     raw_id       TEXT NOT NULL REFERENCES lite_raw_records(id) ON DELETE CASCADE,
     gate_name    TEXT NOT NULL,
     payload_id   BIGINT,
+    event_ts     TIMESTAMPTZ,
     state        TEXT NOT NULL DEFAULT 'pending',
     attempts     INTEGER NOT NULL DEFAULT 0,
     available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
