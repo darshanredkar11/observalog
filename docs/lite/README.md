@@ -62,6 +62,19 @@ A missing trace ID is normal input, not a parse failure. The adapter does not in
 - `lite_source_identity`: best-effort source event identity deduplication, scoped by collection file, service and instance so local IDs from separate streams do not collide.
 - `lite_event_links`, `lite_signals`, `lite_findings`: correlation graph, event signals and current finding materialization.
 
+Findings are currently available from TimescaleDB (there is no dashboard or public findings API in this lite phase):
+
+```sql
+SELECT id, category, title, likely_cause, confidence,
+       primary_event_id, evidence_event_ids, affected_services,
+       first_seen, last_seen, occurrence_count, evidence
+FROM lite_findings
+ORDER BY last_seen DESC
+LIMIT 50;
+```
+
+No automatic TimescaleDB retention policy is enabled yet. Set retention only after choosing explicit raw, payload, index and finding retention requirements.
+
 ## Verification
 
 ```bash
