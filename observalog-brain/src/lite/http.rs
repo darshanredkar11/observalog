@@ -58,7 +58,7 @@ async fn ingest_raw(
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
     if !constant_time_token_eq(bearer.as_bytes(), state.token.as_bytes()) {
-        return Err((StatusCode::UNAUTHORIZED, "missing or invalid bearer token".into()));
+        return Err((StatusCode::UNAUTHORIZED, "missing or invalid ingest token".into()));
     }
 
     let pool = &state.pool;
@@ -219,7 +219,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bearer_token_comparison_requires_exact_token() {
+    fn token_comparison_requires_exact_secret() {
         assert!(constant_time_token_eq(b"secret-token", b"secret-token"));
         assert!(!constant_time_token_eq(b"secret-token", b"secret-token-2"));
         assert!(!constant_time_token_eq(b"", b"secret-token"));
