@@ -36,13 +36,13 @@ jobs:
           raw = sorted((root / "raw").glob("*.log"))
           truth = sorted((root / "ground-truth").glob("*.json"))
           manifest = json.loads((root / "manifest.json").read_text())
-          assert len(raw) == 63, f"expected 63 raw streams, got {len(raw)}"
-          assert len(truth) == 63, f"expected 63 truth files, got {len(truth)}"
-          assert len(manifest) == 63
+          assert len(raw) == 66, f"expected 63 raw streams, got {len(raw)}"
+          assert len(truth) == 66, f"expected 63 truth files, got {len(truth)}"
+          assert len(manifest) == 66
           assert all("primary_cause" not in p.read_text() for p in raw), "ground truth leaked into raw logs"
           poison = [p for p in manifest if p["scenario"] == "poison-record-isolation"]
           assert len(poison) == 3 and all(p["malformed_records"] == 1 for p in poison)
-          print("verified 21 scenarios × 3 arrival permutations; truth remains outside raw/")
+          print("verified 22 scenarios × 3 arrival permutations; truth remains outside raw/")
           PY
 
 # Generator validation runs only on the incident corpus paths.
