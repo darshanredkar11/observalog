@@ -23,6 +23,9 @@ The product is not an infrastructure-monitoring dashboard. Its differentiator is
 6. **Resilience before cleverness.** Backpressure, durable buffering, replay, idempotency, graceful shutdown and failure isolation are product requirements.
 7. **Evidence before inference.** Preserve raw log evidence and distinguish observed values from inferred or unavailable values.
 8. **AI is not on the ingestion hot path.** Deterministic parsing and analysis run first. Existing LLM triage remains selective; an SLM is not a v1 dependency.
+9. **Stream through every gate.** Pipeline stages exchange streams asynchronously; no synchronous cross-gate round trips. Each stage owns its state and independently progresses.
+10. **Simple, adaptive, pluggable.** Use the smallest implementation that meets the business requirement. Keep module boundaries replaceable, but avoid speculative interfaces/frameworks until a real variation needs them.
+11. **Boundedness is mandatory.** Queues, batches, concurrency and retained state have explicit limits. Backpressure may propagate; it must never turn into unbounded memory growth or fire-and-forget data loss.
 
 ## 3. Target user and primary use case
 
@@ -139,6 +142,10 @@ A compatibility spike must confirm the exact fixed-header sentinel strategy agai
 ### Concurrency model
 
 - One Rust process; no internal microservice mesh.
+- Every gate is an independently progressing stream processor: receive stream, process, emit stream.
+- No synchronous cross-gate calls, round trips, or downstream result waits on the ingestion hot path.
+- Cross-gate communication is asynchronous through bounded channels/streams. Backpressure is explicit and may propagate upstream.
+- Control-plane operations (configuration, connect, health, shutdown) may use request/response; they are not per-event pipeline dependencies.
 - Tokio bounded `mpsc` channels between pipeline stages.
 - One logical owner for each state partition; route related events consistently to that owner.
 - Immutable event data is passed between stages.
@@ -146,6 +153,7 @@ A compatibility spike must confirm the exact fixed-header sentinel strategy agai
 - CPU-heavy work uses a bounded CPU executor only where profiling justifies it.
 - No per-event synchronous database query.
 - Database writes are batched and isolated from ingestion/analysis tasks.
+- A stage never waits synchronously for another stage's business processing to complete; ACK/durability signals are separate protocol events and must not block unrelated stream progress.
 
 ### Delivery and recovery
 
