@@ -6,7 +6,7 @@ cd "$ROOT"
 
 cleanup() {
   docker compose down -v --remove-orphans || true
-  rm -f var/logs/*.log
+  rm -f var/logs/observalog-e2e-generated.log
 }
 trap cleanup EXIT
 
@@ -26,8 +26,8 @@ python3 tests/incident_lab/generate.py \
   --duplicate-rate 0.03 --drop-optional-rate 0.05 \
   --output /tmp/observalog-e2e
 
-cp /tmp/observalog-e2e/raw/*.log var/logs/
-expected_lines="$(cat var/logs/*.log | wc -l | tr -d ' ')"
+cat /tmp/observalog-e2e/raw/*.log > var/logs/observalog-e2e-generated.log
+expected_lines="$(wc -l < var/logs/observalog-e2e-generated.log | tr -d ' ')"
 echo "Generated $expected_lines raw log records"
 
 docker compose up -d fluent-bit
