@@ -58,8 +58,8 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
         "document_id", "doc_id", "workflow_id", "transaction_id", "export_id"
     ]);
     record_source_path(root, &["business_entity_id", "entity_id", "order_id", "orderId", "payment_id", "document_id", "doc_id", "workflow_id", "transaction_id", "export_id"], "business_entity_id", &mut provenance);
-    let source_event_id = text_field(root, &["event_id", "eventId", "log_id", "record_id", "id"]);
-    record_source_path(root, &["event_id", "eventId", "log_id", "record_id", "id"], "source_event_id", &mut provenance);
+    let source_event_id = text_field(root, &["event_id", "eventId", "log_id", "logId", "record_id", "recordId"]);
+    record_source_path(root, &["event_id", "eventId", "log_id", "logId", "record_id", "recordId"], "source_event_id", &mut provenance);
     let event_name = text_field(root, &["event_name", "eventName", "event.name", "event", "operation"]);
     record_source_path(root, &["event_name", "eventName", "event.name", "event", "operation"], "event_name", &mut provenance);
     let message = text_field(root, &["message", "msg", "body", "log", "log_message"])
