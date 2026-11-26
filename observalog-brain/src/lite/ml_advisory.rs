@@ -180,7 +180,7 @@ impl WindowAccumulator {
         let count = self.seen as f64;
         let mut samples = self.durations;
         samples.sort_by(f64::total_cmp);
-        let mean = (!samples.is_empty()).then(|| samples.iter().sum::<f64>() / samples.len() as f64);
+        let mean = (self.duration_count > 0).then(|| self.duration_sum / self.duration_count as f64);
         let percentile = |p: f64| if samples.is_empty() { None } else {
             let idx = ((samples.len() - 1) as f64 * p).round() as usize;
             Some(samples[idx])
