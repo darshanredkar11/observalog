@@ -278,46 +278,44 @@ fn quality_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dy
     })
 }
 
+/// Gate 5 deterministic behavioral signal rules. Event-level indicators only.
+fn detect_event_signals(event: &CanonicalEvent, threshold_ms: f64) -> Vec<(&'static str, &'static str, Value)> {
+    let mut signals = Vec::new();
+    let severity = event.severity.as_deref().unwrap_or("");
+    if matches!(severity, "ERROR" | "FATAL") {
+        signals.push(("error_event","high",json!({"severity":severity,"error_code":event.error_code.as_deref()})));
+    }
+    if event.outcome.as_deref() == Some("failure") {
+        signals.push(("business_or_operation_failure","high",json!({"outcome":event.outcome.as_deref()})));
+    }
+    if event.error_code.is_some() || event.error_kind.is_some() || event.error_message.is_some() {
+        signals.push(("error_payload_present","medium",json!({"error_code":event.error_code.as_deref(),"error_kind":event.error_kind.as_deref(),"severity":severity})));
+        if matches!(severity, "INFO" | "DEBUG" | "TRACE") {
+            signals.push(("error_payload_level_mismatch","medium",json!({"error_code":event.error_code.as_deref(),"severity":severity})));
+        }
+    }
+    if event.duration_ms.is_some_and(|value| value >= threshold_ms) {
+        signals.push(("slow_operation","medium",json!({"duration_ms":event.duration_ms,"threshold_ms":threshold_ms})));
+    }
+    if contains_retry_marker(&event.attributes) || event.message.as_deref().is_some_and(|m| m.to_ascii_lowercase().contains("retry")) {
+        signals.push(("retry_activity","medium",json!({"message":event.message.as_deref()})));
+    }
+    let code = event.error_code.as_deref().unwrap_or("").to_ascii_uppercase();
+    if code.contains("DUPLICATE") || code.contains("IDEMPOTENCY") || code.contains("STATE_MISMATCH") || code.contains("INVARIANT") {
+        signals.push(("business_invariant_or_idempotency","high",json!({"error_code":event.error_code.as_deref()})));
+    }
+    signals
+}
+
 fn detect_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> std::pin::Pin<Box<dyn std::future::Future<Output=Result<()>> + Send + 'a>> {
     Box::pin(async move {
         let payload_id = work.payload_id.context("detection work has no payload_id")?;
         let (canonical,): (Value,) = sqlx::query_as("SELECT canonical FROM lite_event_payload WHERE id=$1")
             .bind(payload_id).fetch_one(pool).await?;
         let event: CanonicalEvent = serde_json::from_value(canonical)?;
-        let mut signals: Vec<(&str,&str,Value)> = Vec::new();
-
-        let severity = event.severity.as_deref().unwrap_or("");
-        if matches!(severity, "ERROR" | "FATAL") {
-            signals.push(("error_event","high",json!({"severity":severity,"error_code":event.error_code.as_deref()})));
-        }
-        if event.outcome.as_deref() == Some("failure") {
-            signals.push(("business_or_operation_failure","high",json!({"outcome":event.outcome.as_deref()})));
-        }
-        if event.error_code.is_some() || event.error_kind.is_some() || event.error_message.is_some() {
-            signals.push(("error_payload_present","medium",json!({
-                "error_code":event.error_code.as_deref(),
-                "error_kind":event.error_kind.as_deref(),
-                "severity":severity
-            })));
-            if matches!(severity, "INFO" | "DEBUG" | "TRACE") {
-                signals.push(("error_payload_level_mismatch","medium",json!({
-                    "error_code":event.error_code.as_deref(),
-                    "severity":severity
-                })));
-            }
-        }
         let threshold = std::env::var("LITE_SLOW_THRESHOLD_MS").ok()
             .and_then(|s| s.parse::<f64>().ok()).unwrap_or(1000.0);
-        if event.duration_ms.is_some_and(|value| value >= threshold) {
-            signals.push(("slow_operation","medium",json!({"duration_ms":event.duration_ms,"threshold_ms":threshold})));
-        }
-        if contains_retry_marker(&event.attributes) || event.message.as_deref().is_some_and(|m| m.to_ascii_lowercase().contains("retry")) {
-            signals.push(("retry_activity","medium",json!({"message":event.message.as_deref()})));
-        }
-        let code = event.error_code.as_deref().unwrap_or("").to_ascii_uppercase();
-        if code.contains("DUPLICATE") || code.contains("IDEMPOTENCY") || code.contains("STATE_MISMATCH") || code.contains("INVARIANT") {
-            signals.push(("business_invariant_or_idempotency","high",json!({"error_code":event.error_code.as_deref()})));
-        }
+        let signals = detect_event_signals(&event, threshold);
 
         let mut tx = pool.begin().await?;
         for (kind, level, evidence) in &signals {
