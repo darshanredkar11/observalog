@@ -782,4 +782,110 @@ mod gate3_correlation_tests {
         engine.insert(2, event(1, Some("tiny"), None, None, None, None, None, None));
         assert!(engine.identity_index.keys().all(|key| key.kind != IdentityKind::Trace));
     }
+    // Gate 3.5-B: collision and pressure adversarial coverage.
+    #[test]
+    fn gate_b_identity_collision_pressure_preserves_bounds_and_tenant_isolation() {
+        let mut engine = CorrelationEngine::default();
+        for id in 0..2_000_i64 {
+            let tenant = if id % 2 == 0 { "tenant-a" } else { "tenant-b" };
+            let entity = format!("entity-{id}");
+            let item = event(id, Some("trace-collision-123456"), Some("request-collision"),
+                Some(&entity), Some(tenant), None, None, None);
+            engine.insert(id, item);
+        }
+        assert!(engine.nodes.len() <= MAX_RESIDENT_EVENTS);
+        assert!(engine.identity_index.values().all(|bucket| bucket.len() <= MAX_EVENTS_PER_IDENTITY));
+
+        let probe = event(2_001, Some("trace-collision-123456"), Some("request-collision"),
+            None, Some("tenant-a"), None, None, None);
+        assert!(engine.candidates(&probe).len() <= MAX_CANDIDATES_PER_EVENT);
+        let plan = engine.plan(2_001, &probe);
+        assert!(plan.relationships.iter().all(|relationship| {
+            engine.nodes.get(&relationship.other_id)
+                .is_some_and(|node| node.event.tenant_id.as_deref() == Some("tenant-a"))
+        }), "collision storm must not cross tenant boundaries");
+    }
+
+    // Gate 3.5-C: parallel producer stress against the serialized mutation boundary.
+    #[test]
+    fn gate_c_parallel_producers_account_for_every_unique_event() {
+        use std::sync::{Arc, Mutex};
+        use std::thread;
+
+        let engine = Arc::new(Mutex::new(CorrelationEngine::default()));
+        let producer_count = 8;
+        let events_per_producer = 1_000;
+        let mut workers = Vec::new();
+        for producer in 0..producer_count {
+            let shared = Arc::clone(&engine);
+            workers.push(thread::spawn(move || {
+                for offset in 0..events_per_producer {
+                    let id = (producer * events_per_producer + offset) as i64;
+                    let trace = format!("parallel-trace-{producer:02}-{offset:04}");
+                    let item = event(id, Some(&trace), None, None, None, None, None, None);
+                    shared.lock().expect("engine lock").insert(id, item);
+                }
+            }));
+        }
+        for worker in workers {
+            worker.join().expect("producer thread should finish");
+        }
+        let engine = engine.lock().expect("engine lock");
+        assert_eq!(engine.nodes.len(), producer_count * events_per_producer);
+        assert_eq!(engine.identity_index.len(), producer_count * events_per_producer);
+        assert!(engine.identity_index.values().all(|bucket| bucket.len() <= MAX_EVENTS_PER_IDENTITY));
+    }
+
+    // Gate 3.5-D: replay and edge restoration are idempotent in memory.
+    // Database crash/lease recovery remains an integration qualification.
+    #[test]
+    fn gate_d_replay_and_edge_restore_are_idempotent_and_symmetric() {
+        let mut engine = CorrelationEngine::default();
+        let parent = event(0, Some("trace-recovery-123456"), Some("req-recovery"),
+            None, None, Some("parent-span"), None, None);
+        let child = event(1, Some("trace-recovery-123456"), Some("req-recovery"),
+            None, None, Some("child-span"), Some("parent-span"), None);
+        engine.insert(10, parent);
+        let plan = engine.plan(11, &child);
+        assert!(plan.relationships.iter().any(|r| r.relation_type == "parent_child"));
+        engine.apply(11, child.clone(), &plan.relationships);
+        engine.apply(11, child, &plan.relationships);
+        assert_eq!(engine.nodes.len(), 2);
+
+        let edge = EdgeRow { event_a: 10, event_b: 11, relation_type: "parent_child".into() };
+        engine.restore_edge(edge.clone());
+        engine.restore_edge(edge);
+        let left = engine.adjacency.get(&10).expect("parent adjacency");
+        let right = engine.adjacency.get(&11).expect("child adjacency");
+        assert_eq!(left.iter().filter(|(id, kind)| *id == 11 && kind == "parent_child").count(), 1);
+        assert_eq!(right.iter().filter(|(id, kind)| *id == 10 && kind == "parent_child").count(), 1);
+
+        engine.restore_edge(EdgeRow { event_a: 10, event_b: 99, relation_type: "same_trace".into() });
+        assert!(engine.adjacency.values().flatten().all(|(id, _)| *id != 99),
+            "restoration must ignore edges whose endpoint is missing");
+    }
+
+    // Gate 3.5-E: sustained native insert workload; emit rate for CI diagnostics.
+    #[test]
+    fn gate_e_sustained_insert_soak_keeps_memory_structures_bounded() {
+        let mut engine = CorrelationEngine::default();
+        let count = 30_000_i64;
+        let started = Instant::now();
+        for id in 0..count {
+            let trace = format!("soak-trace-{id:08}");
+            let request = format!("soak-request-{}", id % 300);
+            let item = event(id, Some(&trace), Some(&request), None, None, None, None, None);
+            engine.insert(id, item);
+            if id % 500 == 0 {
+                engine.evict();
+            }
+        }
+        let elapsed = started.elapsed();
+        let rate = count as f64 / elapsed.as_secs_f64().max(0.000_001);
+        eprintln!("Gate E soak: {count} inserts in {elapsed:?} ({rate:.0} events/s)");
+        assert!(engine.nodes.len() <= MAX_RESIDENT_EVENTS);
+        assert!(engine.identity_index.values().all(|bucket| bucket.len() <= MAX_EVENTS_PER_IDENTITY));
+        assert!(engine.adjacency.values().all(|edges| edges.len() <= MAX_ADJACENCY_EDGES_PER_EVENT));
+    }
+
 }
