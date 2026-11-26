@@ -371,14 +371,17 @@ impl CorrelationEngine {
         let right_room = self.adjacency.get(&right_id)
             .is_none_or(|edges| edges.len() < MAX_ADJACENCY_EDGES_PER_EVENT);
 
-        if !left_has && left_room {
-            self.adjacency.entry(left_id).or_default()
-                .push((right_id, relation_type.to_string()));
+        // Adjacency represents an undirected relationship. Never write only
+        // one endpoint: a half-edge becomes a dangling reference when the
+        // opposite event is evicted. Capacity is therefore reserved on both
+        // sides before either side is mutated.
+        if left_id == right_id || left_has || right_has || !left_room || !right_room {
+            return;
         }
-        if !right_has && right_room {
-            self.adjacency.entry(right_id).or_default()
-                .push((left_id, relation_type.to_string()));
-        }
+        self.adjacency.entry(left_id).or_default()
+            .push((right_id, relation_type.to_string()));
+        self.adjacency.entry(right_id).or_default()
+            .push((left_id, relation_type.to_string()));
     }
 
     fn apply(&mut self, id: i64, event: CanonicalEvent, relationships: &[Relationship]) {
@@ -673,7 +676,7 @@ mod gate3_correlation_tests {
     }
 
     #[test]
-    fn removing_saturated_endpoint_cleans_one_sided_edges() {
+    fn saturated_endpoint_does_not_create_one_sided_edges() {
         let mut engine = CorrelationEngine::default();
         engine.insert(1, event(0, Some("trace-node-1"), None, None, None, None, None, None));
         engine.insert(100, event(100, Some("trace-node-100"), None, None, None, None, None, None));
@@ -681,8 +684,15 @@ mod gate3_correlation_tests {
         for other_id in 2..=65 {
             engine.add_adjacency(1, other_id, "same_trace");
         }
+        assert_eq!(engine.adjacency.get(&1).map_or(0, Vec::len), MAX_ADJACENCY_EDGES_PER_EVENT);
+
+        // One endpoint is at capacity. The relationship must be rejected
+        // atomically rather than stored only by the endpoint with free space.
         engine.add_adjacency(100, 1, "same_trace");
-        assert!(engine.adjacency.get(&100).unwrap().iter().any(|(id, _)| *id == 1));
+        assert!(!engine.adjacency.get(&100).is_some_and(|edges|
+            edges.iter().any(|(id, _)| *id == 1)));
+        assert!(!engine.adjacency.get(&1).is_some_and(|edges|
+            edges.iter().any(|(id, _)| *id == 100)));
 
         engine.remove(1);
         assert!(engine.adjacency.values().flatten().all(|(id, _)| *id != 1),
