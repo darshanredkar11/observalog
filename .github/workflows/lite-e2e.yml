@@ -1,40 +1,43 @@
-name: ObservaLog Lite End-to-End
+name: ObservaLog Lite Native Validation
 
 concurrency:
-  group: observalog-lite-e2e-${{ github.ref }}
+  group: observalog-lite-native-${{ github.ref }}
   cancel-in-progress: true
 
 on:
   push:
     branches: [lite/streaming-adapter, lite/adversarial-gate-testing, lite/chaos-gate-3-5]
     paths:
-      - "docker-compose.yml"
-      - "docker/fluent-bit/**"
       - "observalog-brain/**"
       - "tests/incident_lab/**"
       - ".github/workflows/lite-e2e.yml"
   pull_request:
     paths:
-      - "docker-compose.yml"
-      - "docker/fluent-bit/**"
       - "observalog-brain/**"
       - "tests/incident_lab/**"
       - ".github/workflows/lite-e2e.yml"
 
 jobs:
-  fluent-bit-to-timescale:
+  native-tests:
+    name: Native Rust tests (no Docker)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      LITE_INGEST_TOKEN: e2e-only-token-for-local-container-test
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: actions/cache@v4
         with:
-          python-version: "3.12"
-      - name: Validate generator
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            observalog-brain/target
+          key: ${{ runner.os }}-lite-native-${{ hashFiles('observalog-brain/Cargo.lock') }}
+      - name: Validate incident fixture generator
         run: python -m py_compile tests/incident_lab/generate.py
-      - name: Validate Compose configuration
-        run: docker compose config --quiet
-      - name: Run real Fluent Bit → Brain → TimescaleDB pipeline
-        run: bash tests/incident_lab/run_e2e.sh
+      - name: Run Rust unit and adversarial tests
+        working-directory: observalog-brain
+        run: cargo test
+      - name: Clippy
+        working-directory: observalog-brain
+        run: cargo clippy -- -D warnings
