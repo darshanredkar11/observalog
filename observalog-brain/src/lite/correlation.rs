@@ -868,7 +868,7 @@ mod gate3_correlation_tests {
     #[test]
     fn gate_e_sustained_insert_soak_keeps_memory_structures_bounded() {
         let mut engine = CorrelationEngine::default();
-        let count = 30_000_i64;
+        let count = 200_000_i64;
         let started = Instant::now();
         for id in 0..count {
             let trace = format!("soak-trace-{id:08}");
