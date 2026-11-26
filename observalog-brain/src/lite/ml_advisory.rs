@@ -122,6 +122,8 @@ pub struct WindowAccumulator {
     durations: Vec<f64>,
     duration_sum: f64,
     duration_count: u64,
+    duration_sample_seen: u64,
+    sample_rng_state: u64,
     cpu_sum: f64,
     cpu_count: u64,
     memory_sum: f64,
@@ -148,7 +150,7 @@ impl WindowAccumulator {
             max_events, max_duration_samples, seen: 0, errors: 0, failures: 0,
             retries: 0, slow: 0, invariants: 0, traces: std::collections::HashSet::new(),
             durations: Vec::with_capacity(max_duration_samples.min(512)),
-            duration_sum: 0.0, duration_count: 0,
+            duration_sum: 0.0, duration_count: 0, duration_sample_seen: 0, sample_rng_state: 0x9E3779B97F4A7C15,
             cpu_sum: 0.0, cpu_count: 0, memory_sum: 0.0, memory_count: 0,
             latest_queue: None, initial_queue: None, completeness_sum: 0.0, missing_sum: 0,
         })
@@ -170,7 +172,16 @@ impl WindowAccumulator {
         if let Some(t) = e.trace_partition { self.traces.insert(t); }
         if let Some(d) = e.duration_ms {
             self.duration_sum += d; self.duration_count += 1;\n            self.duration_sum += d; self.duration_count += 1;
+            self.duration_sample_seen += 1;
             if self.durations.len() < self.max_duration_samples { self.durations.push(d); }
+            else {
+                // Deterministic reservoir sampling: bounded memory without first-N bias.
+                self.sample_rng_state ^= self.sample_rng_state << 13;
+                self.sample_rng_state ^= self.sample_rng_state >> 7;
+                self.sample_rng_state ^= self.sample_rng_state << 17;
+                let slot = self.sample_rng_state % self.duration_sample_seen;
+                if slot < self.max_duration_samples as u64 { self.durations[slot as usize] = d; }
+            }
         }
         if let Some(c) = e.cpu_utilization { self.cpu_sum += c; self.cpu_count += 1; }
         if let Some(m) = e.memory_utilization { self.memory_sum += m; self.memory_count += 1; }
@@ -315,7 +326,7 @@ mod tests {
     #[test] fn rejects_cross_tenant_and_service() { let mut a=WindowAccumulator::new("tenant-a","payments",0,1000).unwrap(); let mut e=event(1); e.tenant_partition="tenant-b".into(); assert_eq!(a.push(e),Err("partition_mismatch")); let mut e=event(2); e.service_partition="auth".into(); assert_eq!(a.push(e),Err("partition_mismatch")); }
     #[test] fn rejects_events_outside_window() { let mut a=WindowAccumulator::new("tenant-a","payments",10,100).unwrap(); assert_eq!(a.push(event(9)),Err("event_outside_window")); assert_eq!(a.push(event(100)),Err("event_outside_window")); }
     #[test] fn hard_cap_prevents_unbounded_accumulation() { let mut a=WindowAccumulator::with_limits("tenant-a","payments",0,100,2,1).unwrap(); a.push(event(1)).unwrap(); a.push(event(2)).unwrap(); assert_eq!(a.push(event(3)),Err("window_capacity_exceeded")); assert_eq!(a.build().event_count,2); }
-    #[test] fn duration_sample_is_capped_but_event_count_keeps_total() { let mut a=WindowAccumulator::with_limits("tenant-a","payments",0,100,10,2).unwrap(); for d in [10.0,20.0,30.0,40.0] { let mut e=event(1); e.duration_ms=Some(d); a.push(e).unwrap(); } let w=a.build(); assert_eq!(w.event_count,4); assert_eq!(w.duration_mean_ms,Some(25.0)); assert_eq!(w.duration_p50_ms,Some(20.0)); assert_eq!(w.duration_p95_ms,Some(20.0)); }
+    #[test] fn duration_sample_is_capped_but_event_count_keeps_total() { let mut a=WindowAccumulator::with_limits("tenant-a","payments",0,100,10,2).unwrap(); for d in [10.0,20.0,30.0,40.0] { let mut e=event(1); e.duration_ms=Some(d); a.push(e).unwrap(); } let w=a.build(); assert_eq!(w.event_count,4); assert_eq!(w.duration_mean_ms,Some(25.0)); assert!(w.duration_p50_ms.is_some_and(|v| (10.0..=40.0).contains(&v))); assert!(w.duration_p95_ms.is_some_and(|v| (10.0..=40.0).contains(&v))); }
     #[test] fn aggregates_flags_rates_and_distinct_trace_count() { let mut a=WindowAccumulator::new("tenant-a","payments",0,100).unwrap(); for (ts,trace,is_error,is_retry) in [(1,"t1",true,false),(2,"t1",true,false),(3,"t2",false,true)] { let mut e=event(ts); e.trace_partition=Some(trace.into()); e.is_error=is_error; e.is_failure=is_error; e.is_retry=is_retry; e.is_slow=is_error; e.is_invariant_violation=is_retry; a.push(e).unwrap(); } let w=a.build(); assert_eq!(w.event_count,3); assert_eq!(w.error_count,2); assert_eq!(w.retry_count,1); assert_eq!(w.independent_trace_count,2); assert!((w.error_rate-2.0/3.0).abs()<1e-9); }
     #[test] fn rejects_invalid_feature_values() { let mut a=WindowAccumulator::new("tenant-a","payments",0,100).unwrap(); let mut e=event(1); e.cpu_utilization=Some(f64::NAN); assert_eq!(a.push(e),Err("invalid_resource_ratio")); }
     #[test] fn cold_provider_always_abstains() { let p=ColdStartProvider; let w=window(); let s=p.score(&w).unwrap(); assert_eq!(s.anomaly_score,None); assert_eq!(s.abstention,Some(AbstentionReason::InsufficientBaseline)); }
