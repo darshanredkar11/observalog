@@ -35,8 +35,15 @@ jobs:
           key: ${{ runner.os }}-lite-native-${{ hashFiles('observalog-brain/Cargo.lock') }}
       - name: Validate incident fixture generator
         run: python -m py_compile tests/incident_lab/generate.py
-      - name: Run Rust unit and adversarial tests
+      - name: Start native PostgreSQL (no containers)
+        run: |
+          sudo service postgresql start
+          sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';"
+          sudo -u postgres psql -c "CREATE DATABASE gate4_test;"
+      - name: Run Rust unit, adversarial, and Gate 4 database tests
         working-directory: observalog-brain
+        env:
+          GATE4_DATABASE_URL: postgres://postgres:postgres@localhost:5432/gate4_test
         run: cargo test -- --nocapture
       - name: Clippy
         working-directory: observalog-brain
