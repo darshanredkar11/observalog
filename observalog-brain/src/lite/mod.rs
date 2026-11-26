@@ -32,6 +32,8 @@ pub async fn start_workers(pool: PgPool) {
     tokio::spawn(supervise("quality", pool.clone(), gates::run_quality));
     tokio::spawn(supervise("correlate", pool.clone(), gates::run_correlation));
     tokio::spawn(supervise("detect", pool.clone(), gates::run_detection));
-    tokio::spawn(supervise("reason", pool, gates::run_reasoning));
+    tokio::spawn(supervise("reason", pool.clone(), gates::run_reasoning));
+    // Gate 5.1 is an independent, disabled-by-default advisory shadow worker.
+    tokio::spawn(ml_advisory::run_shadow_worker(pool));
     info!("lite streaming gates started under per-gate supervision");
 }
