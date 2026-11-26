@@ -42,6 +42,26 @@ jobs:
           assert sum(1 for r in records if r.get("collector_duplicate")) == 24
           print("mega corpus verified: 620 base + 24 duplicates; 31 classes; evaluator truth isolated")
           PY
+      - name: Generate full 25k corpus bundle
+        run: python tests/incident_lab/mega_corpus.py --count 25000 --seed 20261126 --duplicate-rate 0.04 --output /tmp/observalog-full-corpus
+      - name: Upload raw corpus (safe for ingestion)
+        uses: actions/upload-artifact@v4
+        with:
+          name: observalog-lite-raw-corpus-25k
+          path: /tmp/observalog-full-corpus/raw/corpus.jsonl
+          retention-days: 14
+      - name: Upload evaluator truth (never ingest)
+        uses: actions/upload-artifact@v4
+        with:
+          name: observalog-lite-ground-truth-25k
+          path: /tmp/observalog-full-corpus/ground-truth/labels.json
+          retention-days: 14
+      - name: Upload corpus metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: observalog-lite-corpus-metadata
+          path: /tmp/observalog-full-corpus/README.txt
+          retention-days: 14
       - name: Generate randomized incident streams
         run: |
           python tests/incident_lab/generate.py \
