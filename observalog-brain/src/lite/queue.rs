@@ -188,6 +188,8 @@ mod gate4_database_recovery_tests {
         sqlx::query("SELECT pg_advisory_unlock($1)").bind(lock_key).execute(&mut *contender)
             .await.expect("unlock contender");
 
+        drop(leader);
+        drop(contender);
         pool2.close().await;
         sqlx::query("DROP SCHEMA gate4_test_schema CASCADE").execute(&admin).await.expect("drop test schema");
         admin.close().await;
