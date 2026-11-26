@@ -882,6 +882,14 @@ mod gate3_correlation_tests {
         let elapsed = started.elapsed();
         let rate = count as f64 / elapsed.as_secs_f64().max(0.000_001);
         eprintln!("Gate E soak: {count} inserts in {elapsed:?} ({rate:.0} events/s)");
+        let peak_rss_kib = std::fs::read_to_string("/proc/self/status").ok()
+            .and_then(|status| status.lines().find(|line| line.starts_with("VmHWM:")))
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|value| value.parse::<u64>().ok());
+        eprintln!("Gate E peak RSS: {:?} KiB", peak_rss_kib);
+        if let Some(peak) = peak_rss_kib {
+            assert!(peak < 1_048_576, "native soak peak RSS exceeded 1 GiB");
+        }
         assert!(engine.nodes.len() <= MAX_RESIDENT_EVENTS);
         assert!(engine.identity_index.values().all(|bucket| bucket.len() <= MAX_EVENTS_PER_IDENTITY));
         assert!(engine.adjacency.values().all(|edges| edges.len() <= MAX_ADJACENCY_EDGES_PER_EVENT));
