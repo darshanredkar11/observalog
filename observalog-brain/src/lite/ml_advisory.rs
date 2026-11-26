@@ -363,8 +363,11 @@ pub async fn run_shadow_worker(pool: sqlx::PgPool) {
         "#;
         match tokio::time::timeout(Duration::from_secs(2), sqlx::query_as::<_, DbWindowRow>(query).fetch_all(&pool)).await {
             Ok(Ok(rows)) => for row in rows {
+                if !tenant_tokens.contains_key(&row.tenant_id) && tenant_tokens.len() >= 1000 { tenant_tokens.clear(); }
                 let tenant_token = tenant_tokens.entry(row.tenant_id).or_insert_with(|| uuid::Uuid::new_v4().to_string()).clone();
-                let service_token = service_tokens.entry(format!("{}:{}", tenant_token, row.service)).or_insert_with(|| uuid::Uuid::new_v4().to_string()).clone();
+                let service_key = format!("{}:{}", tenant_token, row.service);
+                if !service_tokens.contains_key(&service_key) && service_tokens.len() >= 1000 { service_tokens.clear(); }
+                let service_token = service_tokens.entry(service_key).or_insert_with(|| uuid::Uuid::new_v4().to_string()).clone();
                 let total = row.event_count.max(0) as u64;
                 let start_ms = start_time.timestamp_millis() - 300_000;
                 let end_ms = start_time.timestamp_millis();
