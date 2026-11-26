@@ -791,4 +791,14 @@ mod gate1_adversarial_tests {
         assert!(event.message.as_deref().unwrap_or_default().contains("मराठी"));
         assert_eq!(event.source_name.as_deref(),Some("adversarial"));
     }
+
+    #[test]
+    fn invalid_preferred_alias_does_not_hide_valid_fallback_aliases() {
+        let raw = r#"{"timestamp":"garbage","@timestamp":"2026-11-26T09:30:00Z","severity_text":"ALIEN","level":"ERROR","duration_ms":"invalid","latency_ms":250}"#;
+        let event = adapt(raw, &json!({}), observed());
+        assert_eq!(event.event_ts.to_rfc3339(), "2026-11-26T09:30:00+00:00");
+        assert!(!event.event_ts_inferred);
+        assert_eq!(event.severity.as_deref(), Some("ERROR"));
+        assert_eq!(event.duration_ms, Some(250.0));
+    }
 }
