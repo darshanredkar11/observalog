@@ -120,6 +120,8 @@ pub struct WindowAccumulator {
     invariants: u64,
     traces: std::collections::HashSet<String>,
     durations: Vec<f64>,
+    duration_sum: f64,
+    duration_count: u64,
     cpu_sum: f64,
     cpu_count: u64,
     memory_sum: f64,
@@ -146,6 +148,7 @@ impl WindowAccumulator {
             max_events, max_duration_samples, seen: 0, errors: 0, failures: 0,
             retries: 0, slow: 0, invariants: 0, traces: std::collections::HashSet::new(),
             durations: Vec::with_capacity(max_duration_samples.min(512)),
+            duration_sum: 0.0, duration_count: 0,
             cpu_sum: 0.0, cpu_count: 0, memory_sum: 0.0, memory_count: 0,
             latest_queue: None, initial_queue: None, completeness_sum: 0.0, missing_sum: 0,
         })
@@ -166,7 +169,8 @@ impl WindowAccumulator {
         self.invariants += if e.is_invariant_violation { 1 } else { 0 };
         if let Some(t) = e.trace_partition { self.traces.insert(t); }
         if let Some(d) = e.duration_ms {
-            self.duration_sum += d; self.duration_count += 1;\n            if self.durations.len() < self.max_duration_samples { self.durations.push(d); }
+            self.duration_sum += d; self.duration_count += 1;\n            self.duration_sum += d; self.duration_count += 1;
+            if self.durations.len() < self.max_duration_samples { self.durations.push(d); }
         }
         if let Some(c) = e.cpu_utilization { self.cpu_sum += c; self.cpu_count += 1; }
         if let Some(m) = e.memory_utilization { self.memory_sum += m; self.memory_count += 1; }
