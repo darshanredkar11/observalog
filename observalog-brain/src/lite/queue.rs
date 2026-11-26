@@ -104,17 +104,12 @@ mod gate4_database_recovery_tests {
     use sqlx::postgres::PgPoolOptions;
     use std::env;
 
-    async fn test_pool(database_url: &str, schema: &str) -> PgPool {
-        let schema = schema.to_string();
+    async fn test_pool(database_url: &str) -> PgPool {
         PgPoolOptions::new().max_connections(4)
-            .after_connect(move |conn, _| {
-                let schema = schema.clone();
-                Box::pin(async move {
-                    sqlx::query(&format!("SET search_path TO {}", schema))
-                        .execute(conn).await?;
-                    Ok(())
-                })
-            })
+            .after_connect(|conn, _| Box::pin(async move {
+                sqlx::query("SET search_path TO gate4_test_schema").execute(conn).await?;
+                Ok(())
+            }))
             .connect(database_url).await.expect("connect isolated test pool")
     }
 
@@ -126,9 +121,9 @@ mod gate4_database_recovery_tests {
         };
         let admin = PgPoolOptions::new().max_connections(2).connect(&database_url)
             .await.expect("connect to PostgreSQL");
-        let schema = format!("gate4_{}", uuid::Uuid::new_v4().simple());
-        sqlx::query(&format!("CREATE SCHEMA {}", schema)).execute(&admin).await.expect("create test schema");
-        let pool1 = test_pool(&database_url, &schema).await;
+        sqlx::query("DROP SCHEMA IF EXISTS gate4_test_schema CASCADE").execute(&admin).await.expect("clean test schema");
+        sqlx::query("CREATE SCHEMA gate4_test_schema").execute(&admin).await.expect("create test schema");
+        let pool1 = test_pool(&database_url).await;
         sqlx::raw_sql(r#"
             CREATE TABLE lite_raw_records (
                 id TEXT PRIMARY KEY, raw_text TEXT NOT NULL,
@@ -159,7 +154,7 @@ mod gate4_database_recovery_tests {
         pool1.close().await;
 
         // New pool represents a restarted worker/process; queue state survives.
-        let pool2 = test_pool(&database_url, &schema).await;
+        let pool2 = test_pool(&database_url).await;
         let recovered = claim(&pool2, "normalize").await.expect("reclaim lease").expect("expired lease");
         assert_eq!(recovered.work_id, first.work_id);
         let attempts: i32 = sqlx::query_scalar("SELECT attempts FROM lite_gate_work WHERE id=$1")
@@ -194,7 +189,7 @@ mod gate4_database_recovery_tests {
             .await.expect("unlock contender");
 
         pool2.close().await;
-        sqlx::query(&format!("DROP SCHEMA {} CASCADE", schema)).execute(&admin).await.expect("drop test schema");
+        sqlx::query("DROP SCHEMA gate4_test_schema CASCADE").execute(&admin).await.expect("drop test schema");
         admin.close().await;
     }
 }
