@@ -171,7 +171,7 @@ impl WindowAccumulator {
         self.invariants += if e.is_invariant_violation { 1 } else { 0 };
         if let Some(t) = e.trace_partition { self.traces.insert(t); }
         if let Some(d) = e.duration_ms {
-            self.duration_sum += d; self.duration_count += 1;\n            self.duration_sum += d; self.duration_count += 1;
+            self.duration_sum += d; self.duration_count += 1;
             self.duration_sample_seen += 1;
             if self.durations.len() < self.max_duration_samples { self.durations.push(d); }
             else {
