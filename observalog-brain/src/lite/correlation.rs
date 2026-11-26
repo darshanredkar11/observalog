@@ -329,9 +329,13 @@ impl CorrelationEngine {
     }
 
     fn evict(&mut self) {
+        self.evict_at(Instant::now());
+    }
+
+    fn evict_at(&mut self, now: Instant) {
         while let Some(oldest_id) = self.insertion_order.front().copied() {
             let expired = self.nodes.get(&oldest_id)
-                .is_some_and(|node| node.inserted_at.elapsed() >= RESIDENT_TTL);
+                .is_some_and(|node| now.saturating_duration_since(node.inserted_at) >= RESIDENT_TTL);
             let over_capacity = self.nodes.len() > MAX_RESIDENT_EVENTS;
             if !expired && !over_capacity { break; }
             self.insertion_order.pop_front();
@@ -713,7 +717,8 @@ mod gate3_correlation_tests {
     fn ttl_eviction_releases_identity_index_entries() {
         let mut engine = CorrelationEngine::default();
         engine.insert(1, event(0, Some("trace-expired-1"), None, None, None, None, None, None));
-        engine.nodes.get_mut(&1).unwrap().inserted_at = Instant::now() - RESIDENT_TTL;
+        let expiry = engine.nodes.get(&1).unwrap().inserted_at + RESIDENT_TTL;
+        engine.evict_at(expiry);
         engine.insert(2, event(1, Some("trace-resident-2"), None, None, None, None, None, None));
 
         assert!(!engine.nodes.contains_key(&1));
