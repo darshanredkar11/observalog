@@ -20,6 +20,28 @@ jobs:
           python-version: "3.12"
       - name: Compile generator
         run: python -m py_compile tests/incident_lab/generate.py
+      - name: Compile mega corpus generator
+        run: python -m py_compile tests/incident_lab/mega_corpus.py
+      - name: Generate mega corpus smoke set
+        run: python tests/incident_lab/mega_corpus.py --count 620 --seed 20261126 --duplicate-rate 0.04 --output /tmp/mega-corpus-smoke
+      - name: Validate mega corpus integrity and truth isolation
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("/tmp/mega-corpus-smoke")
+          raw = (root / "raw" / "corpus.jsonl").read_text().splitlines()
+          truth = json.loads((root / "ground-truth" / "labels.json").read_text())
+          records = [json.loads(line) for line in raw]
+          assert len(records) == 644, f"expected 644 records including duplicates, got {len(records)}"
+          assert len(truth["labels"]) == 620
+          assert len(truth["functional_classes"]) == 31
+          assert truth["duplicates"] == 24
+          assert set(r["scenario"] for r in records) == set(truth["functional_classes"])
+          assert all("expected_class" not in r and "primary_cause" not in r for r in records), "truth leaked into raw records"
+          assert sum(1 for r in records if r.get("collector_duplicate")) == 24
+          print("mega corpus verified: 620 base + 24 duplicates; 31 classes; evaluator truth isolated")
+          PY
       - name: Generate randomized incident streams
         run: |
           python tests/incident_lab/generate.py \
