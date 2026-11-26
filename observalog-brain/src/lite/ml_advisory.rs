@@ -309,29 +309,7 @@ pub fn validate_score(s: &AdvisoryScore) -> Result<(), &'static str> {
 }
 fn ratio(v: f64) -> bool { v.is_finite() && (0.0..=1.0).contains(&v) }
 
-#[derive(Debug, sqlx::FromRow)]
-struct DbWindowRow {
-    tenant_id: String, service: String, event_count: i64, error_count: i64,
-    failure_count: i64, trace_count: i64, retry_count: i64, slow_count: i64,
-    invariant_count: i64, duration_mean_ms: Option<f64>, duration_p50_ms: Option<f64>,
-    duration_p95_ms: Option<f64>, duration_p99_ms: Option<f64>,
-    mapping_completeness: Option<f64>, missing_count: i64,
-}
-
-/// Optional five-minute SQL aggregate shadow worker. Disabled by default.
-/// It queries aggregate rows only, tokenizes tenant/service scope before provider
-/// invocation, and never writes into Gate 5 tables.
-pub async fn run_shadow_worker(pool: sqlx::PgPool) {
-    let enabled = std::env::var("LITE_ML_SHADOW_ENABLED").map(|v| v.eq_ignore_ascii_case("true")).unwrap_or(false);
-    let runner = match ShadowRunner::new(enabled, Arc::new(ColdStartProvider), 4, Duration::from_millis(500)) {
-        Ok(r) => Arc::new(r), Err(_) => return,
-    };
-    let mut tenant_tokens: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    let mut service_tokens: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    loop {
-        if !enabled { tokio::time::sleep(Duration::from_secs(30)).await; continue; }
-        let start_time = chrono::Utc::now();
-        let query = r#"
+const SHADOW_WINDOW_QUERY: &str = r#"
             WITH recent AS (
                 SELECT id,event_ts,tenant_id,service,severity,outcome,trace_id,duration_ms,quality_score
                 FROM lite_event_index
@@ -361,6 +339,31 @@ pub async fn run_shadow_worker(pool: sqlx::PgPool) {
             GROUP BY r.tenant_id,r.service,sa.retries,sa.slow,sa.invariants
             ORDER BY COUNT(*) DESC LIMIT 100
         "#;
+
+#[derive(Debug, sqlx::FromRow)]
+struct DbWindowRow {
+    tenant_id: String, service: String, event_count: i64, error_count: i64,
+    failure_count: i64, trace_count: i64, retry_count: i64, slow_count: i64,
+    invariant_count: i64, duration_mean_ms: Option<f64>, duration_p50_ms: Option<f64>,
+    duration_p95_ms: Option<f64>, duration_p99_ms: Option<f64>,
+    mapping_completeness: Option<f64>, missing_count: i64,
+}
+
+/// Optional five-minute SQL aggregate shadow worker. Disabled by default.
+/// It queries aggregate rows only, tokenizes tenant/service scope before provider
+/// invocation, and never writes into Gate 5 tables.
+pub async fn run_shadow_worker(pool: sqlx::PgPool) {
+    let enabled = std::env::var("LITE_ML_SHADOW_ENABLED").map(|v| v.eq_ignore_ascii_case("true")).unwrap_or(false);
+    let runner = match ShadowRunner::new(enabled, Arc::new(ColdStartProvider), 4, Duration::from_millis(500)) {
+        Ok(r) => Arc::new(r), Err(_) => return,
+    };
+    let mut tenant_tokens: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut service_tokens: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    loop {
+        if !enabled { tokio::time::sleep(Duration::from_secs(30)).await; continue; }
+        let start_time = chrono::Utc::now();
+        let query = SHADOW_WINDOW_QUERY;
+
         match tokio::time::timeout(Duration::from_secs(2), sqlx::query_as::<_, DbWindowRow>(query).fetch_all(&pool)).await {
             Ok(Ok(rows)) => for row in rows {
                 if !tenant_tokens.contains_key(&row.tenant_id) && tenant_tokens.len() >= 1000 { tenant_tokens.clear(); }
@@ -428,4 +431,40 @@ mod tests {
     #[tokio::test] async fn panicking_provider_is_fail_open() { struct Panic; impl AdvisoryProvider for Panic { fn provider_id(&self)->&'static str{"panic"} fn model_version(&self)->&'static str{"1"} fn score(&self,_:&AggregatedWindow)->Result<AdvisoryScore,ProviderError>{panic!("simulated")}} let r=ShadowRunner::new(true,Arc::new(Panic),1,Duration::from_secs(1)).unwrap(); assert!(matches!(r.score(window()).await,ShadowOutcome::ProviderFailed(_))); }
     #[tokio::test] async fn timeout_is_fail_open() { struct Slow; impl AdvisoryProvider for Slow { fn provider_id(&self)->&'static str{"slow"} fn model_version(&self)->&'static str{"1"} fn score(&self,_:&AggregatedWindow)->Result<AdvisoryScore,ProviderError>{std::thread::sleep(Duration::from_millis(100)); Ok(ColdStartProvider.score(&window()).unwrap())}} let r=ShadowRunner::new(true,Arc::new(Slow),1,Duration::from_millis(5)).unwrap(); assert_eq!(r.score(window()).await,ShadowOutcome::TimedOut); }
     #[tokio::test] async fn capacity_saturated_is_fail_open() { struct Slow; impl AdvisoryProvider for Slow { fn provider_id(&self)->&'static str{"slow"} fn model_version(&self)->&'static str{"1"} fn score(&self,_:&AggregatedWindow)->Result<AdvisoryScore,ProviderError>{std::thread::sleep(Duration::from_millis(100)); Ok(ColdStartProvider.score(&window()).unwrap())}} let r=Arc::new(ShadowRunner::new(true,Arc::new(Slow),1,Duration::from_secs(1)).unwrap()); let first_runner=r.clone(); let first=tokio::spawn(async move {first_runner.score(window()).await}); tokio::time::sleep(Duration::from_millis(10)).await; assert_eq!(r.score(window()).await,ShadowOutcome::CapacitySkipped); let _=first.await; }
+    #[tokio::test]
+    async fn shadow_sql_aggregates_tenant_service_groups_when_test_db_is_available() {
+        let Ok(url) = std::env::var("GATE4_DATABASE_URL") else { return; };
+        let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&url).await.unwrap();
+        sqlx::raw_sql(r#"
+            CREATE TEMP TABLE lite_event_index (
+                id BIGINT, event_ts TIMESTAMPTZ, tenant_id TEXT, service TEXT,
+                severity TEXT, outcome TEXT, trace_id TEXT, duration_ms DOUBLE PRECISION,
+                quality_score DOUBLE PRECISION
+            );
+            CREATE TEMP TABLE lite_signals (event_id BIGINT, event_ts TIMESTAMPTZ, signal_type TEXT);
+            INSERT INTO lite_event_index VALUES
+                (101,NOW()-INTERVAL '1 minute','tenant-a','checkout','ERROR','failure','trace-a',10.0,0.9),
+                (102,NOW()-INTERVAL '2 minutes','tenant-a','checkout','INFO','success','trace-a',20.0,0.8),
+                (201,NOW()-INTERVAL '1 minute','tenant-b','checkout','ERROR','success','trace-b',30.0,1.0);
+            INSERT INTO lite_signals VALUES
+                (101,NOW()-INTERVAL '1 minute','retry_activity'),
+                (101,NOW()-INTERVAL '1 minute','slow_operation'),
+                (201,NOW()-INTERVAL '1 minute','business_invariant_or_idempotency');
+        "#).execute(&pool).await.unwrap();
+        let rows = sqlx::query_as::<_, DbWindowRow>(SHADOW_WINDOW_QUERY).fetch_all(&pool).await.unwrap();
+        assert_eq!(rows.len(), 2, "tenants must not merge even for same service name");
+        let a = rows.iter().find(|r| r.tenant_id == "tenant-a").unwrap();
+        assert_eq!(a.service, "checkout");
+        assert_eq!(a.event_count, 2);
+        assert_eq!(a.error_count, 1);
+        assert_eq!(a.failure_count, 1);
+        assert_eq!(a.trace_count, 1);
+        assert_eq!(a.retry_count, 1);
+        assert_eq!(a.slow_count, 1);
+        let b = rows.iter().find(|r| r.tenant_id == "tenant-b").unwrap();
+        assert_eq!(b.event_count, 1);
+        assert_eq!(b.error_count, 1);
+        assert_eq!(b.failure_count, 0);
+        assert_eq!(b.invariant_count, 1);
+    }
 }
