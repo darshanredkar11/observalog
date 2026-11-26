@@ -852,9 +852,8 @@ mod gate3_correlation_tests {
         engine.apply(11, child, &plan.relationships);
         assert_eq!(engine.nodes.len(), 2);
 
-        let edge = EdgeRow { event_a: 10, event_b: 11, relation_type: "parent_child".into() };
-        engine.restore_edge(edge.clone());
-        engine.restore_edge(edge);
+        engine.restore_edge(EdgeRow { event_a: 10, event_b: 11, relation_type: "parent_child".into() });
+        engine.restore_edge(EdgeRow { event_a: 10, event_b: 11, relation_type: "parent_child".into() });
         let left = engine.adjacency.get(&10).expect("parent adjacency");
         let right = engine.adjacency.get(&11).expect("child adjacency");
         assert_eq!(left.iter().filter(|(id, kind)| *id == 11 && kind == "parent_child").count(), 1);
