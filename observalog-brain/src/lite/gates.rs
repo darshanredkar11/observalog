@@ -658,3 +658,37 @@ mod gate2_quality_tests {
         assert_eq!(strings,sorted);
     }
 }
+
+#[cfg(test)]
+mod gate5_behavior_signal_tests {
+    use super::*;
+    use chrono::{DateTime, Utc};
+    use serde_json::json;
+
+    fn sample() -> CanonicalEvent {
+        let ts = DateTime::parse_from_rfc3339("2026-11-26T12:00:00Z").unwrap().with_timezone(&Utc);
+        CanonicalEvent {
+            source_name: Some("test".into()), source_event_id: None,
+            event_ts: ts, observed_at: ts, event_ts_inferred: false,
+            service: Some("checkout".into()), instance: None, version: None,
+            environment: None, region: None, tenant_id: None, severity: Some("INFO".into()),
+            trace_id: None, span_id: None, parent_span_id: None, request_id: None,
+            business_entity_id: None, message_id: None, dependency_name: None, event_name: None,
+            message: Some("normal".into()), outcome: Some("success".into()), duration_ms: Some(10.0),
+            error_kind: None, error_code: None, error_message: None,
+            attributes: json!({}), provenance: json!({}), quality: json!({})
+        }
+    }
+    fn kinds(e: &CanonicalEvent, threshold: f64) -> Vec<&'static str> {
+        detect_event_signals(e, threshold).into_iter().map(|s| s.0).collect()
+    }
+
+    #[test] fn healthy_event_emits_no_signal() { assert!(kinds(&sample(), 1000.0).is_empty()); }
+    #[test] fn error_severity_detected() { let mut e=sample(); e.severity=Some("ERROR".into()); assert!(kinds(&e,1000.0).contains(&"error_event")); }
+    #[test] fn failure_outcome_detected_even_without_error_severity() { let mut e=sample(); e.outcome=Some("failure".into()); assert!(kinds(&e,1000.0).contains(&"business_or_operation_failure")); }
+    #[test] fn error_payload_detected_and_mismatch_flagged() { let mut e=sample(); e.error_code=Some("E42".into()); assert!(kinds(&e,1000.0).contains(&"error_payload_present")); assert!(kinds(&e,1000.0).contains(&"error_payload_level_mismatch")); }
+    #[test] fn slow_threshold_is_inclusive() { let mut e=sample(); e.duration_ms=Some(1000.0); assert!(kinds(&e,1000.0).contains(&"slow_operation")); }
+    #[test] fn duration_below_threshold_is_not_slow() { let mut e=sample(); e.duration_ms=Some(999.9); assert!(!kinds(&e,1000.0).contains(&"slow_operation")); }
+    #[test] fn retry_marker_detected_in_message() { let mut e=sample(); e.message=Some("retry attempt 3".into()); assert!(kinds(&e,1000.0).contains(&"retry_activity")); }
+    #[test] fn idempotency_invariant_code_detected_case_insensitively() { let mut e=sample(); e.error_code=Some("state_mismatch".into()); assert!(kinds(&e,1000.0).contains(&"business_invariant_or_idempotency")); }
+}
