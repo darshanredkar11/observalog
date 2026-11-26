@@ -309,6 +309,96 @@ pub fn validate_score(s: &AdvisoryScore) -> Result<(), &'static str> {
 }
 fn ratio(v: f64) -> bool { v.is_finite() && (0.0..=1.0).contains(&v) }
 
+#[derive(Debug, sqlx::FromRow)]
+struct DbWindowRow {
+    tenant_id: String, service: String, event_count: i64, error_count: i64,
+    failure_count: i64, trace_count: i64, retry_count: i64, slow_count: i64,
+    invariant_count: i64, duration_mean_ms: Option<f64>, duration_p50_ms: Option<f64>,
+    duration_p95_ms: Option<f64>, duration_p99_ms: Option<f64>,
+    mapping_completeness: Option<f64>, missing_count: i64,
+}
+
+/// Optional five-minute SQL aggregate shadow worker. Disabled by default.
+/// It queries aggregate rows only, tokenizes tenant/service scope before provider
+/// invocation, and never writes into Gate 5 tables.
+pub async fn run_shadow_worker(pool: sqlx::PgPool) {
+    let enabled = std::env::var("LITE_ML_SHADOW_ENABLED").map(|v| v.eq_ignore_ascii_case("true")).unwrap_or(false);
+    let runner = match ShadowRunner::new(enabled, Arc::new(ColdStartProvider), 4, Duration::from_millis(500)) {
+        Ok(r) => Arc::new(r), Err(_) => return,
+    };
+    let mut tenant_tokens: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut service_tokens: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    loop {
+        if !enabled { tokio::time::sleep(Duration::from_secs(30)).await; continue; }
+        let start_time = chrono::Utc::now();
+        let query = r#"
+            WITH recent AS (
+                SELECT id,event_ts,tenant_id,service,severity,outcome,trace_id,duration_ms,quality_score
+                FROM lite_event_index
+                WHERE event_ts >= NOW() - INTERVAL '5 minutes'
+                  AND tenant_id IS NOT NULL AND service IS NOT NULL
+            ), signal_agg AS (
+                SELECT r.tenant_id,r.service,
+                    COUNT(*) FILTER (WHERE s.signal_type='retry_activity') AS retries,
+                    COUNT(*) FILTER (WHERE s.signal_type='slow_operation') AS slow,
+                    COUNT(*) FILTER (WHERE s.signal_type='business_invariant_or_idempotency') AS invariants
+                FROM recent r JOIN lite_signals s ON s.event_id=r.id AND s.event_ts=r.event_ts
+                GROUP BY r.tenant_id,r.service
+            )
+            SELECT r.tenant_id,r.service,COUNT(*) AS event_count,
+                COUNT(*) FILTER (WHERE r.severity IN ('ERROR','FATAL')) AS error_count,
+                COUNT(*) FILTER (WHERE r.outcome='failure') AS failure_count,
+                COUNT(DISTINCT r.trace_id) FILTER (WHERE r.trace_id IS NOT NULL) AS trace_count,
+                COALESCE(sa.retries,0) AS retry_count, COALESCE(sa.slow,0) AS slow_count,
+                COALESCE(sa.invariants,0) AS invariant_count,
+                AVG(r.duration_ms) AS duration_mean_ms,
+                percentile_cont(0.50) WITHIN GROUP (ORDER BY r.duration_ms) AS duration_p50_ms,
+                percentile_cont(0.95) WITHIN GROUP (ORDER BY r.duration_ms) AS duration_p95_ms,
+                percentile_cont(0.99) WITHIN GROUP (ORDER BY r.duration_ms) AS duration_p99_ms,
+                AVG(r.quality_score) AS mapping_completeness,
+                COUNT(*) FILTER (WHERE r.quality_score < 0.5) AS missing_count
+            FROM recent r LEFT JOIN signal_agg sa ON sa.tenant_id=r.tenant_id AND sa.service=r.service
+            GROUP BY r.tenant_id,r.service,sa.retries,sa.slow,sa.invariants
+            ORDER BY COUNT(*) DESC LIMIT 100
+        "#;
+        match tokio::time::timeout(Duration::from_secs(2), sqlx::query_as::<_, DbWindowRow>(query).fetch_all(&pool)).await {
+            Ok(Ok(rows)) => for row in rows {
+                let tenant_token = tenant_tokens.entry(row.tenant_id).or_insert_with(|| uuid::Uuid::new_v4().to_string()).clone();
+                let service_token = service_tokens.entry(format!("{}:{}", tenant_token, row.service)).or_insert_with(|| uuid::Uuid::new_v4().to_string()).clone();
+                let total = row.event_count.max(0) as u64;
+                let start_ms = start_time.timestamp_millis() - 300_000;
+                let end_ms = start_time.timestamp_millis();
+                let window = AggregatedWindow {
+                    tenant_partition: tenant_token, service_partition: service_token,
+                    window_start_epoch_ms: start_ms, window_end_epoch_ms: end_ms,
+                    feature_schema_version: FEATURE_SCHEMA_VERSION,
+                    event_count: total, error_count: row.error_count.max(0) as u64,
+                    failure_outcome_count: row.failure_count.max(0) as u64,
+                    retry_count: row.retry_count.max(0) as u64, slow_count: row.slow_count.max(0) as u64,
+                    invariant_violation_count: row.invariant_count.max(0) as u64,
+                    independent_trace_count: row.trace_count.max(0) as u64,
+                    error_rate: if total == 0 { 0.0 } else { row.error_count.max(0) as f64 / total as f64 },
+                    failure_rate: if total == 0 { 0.0 } else { row.failure_count.max(0) as f64 / total as f64 },
+                    retry_rate: if total == 0 { 0.0 } else { row.retry_count.max(0) as f64 / total as f64 },
+                    duration_mean_ms: row.duration_mean_ms, duration_p50_ms: row.duration_p50_ms,
+                    duration_p95_ms: row.duration_p95_ms, duration_p99_ms: row.duration_p99_ms,
+                    cpu_utilization: None, memory_utilization: None, queue_depth: None, queue_depth_delta: None,
+                    // Mapping quality is a proxy; no telemetry completeness is claimed.
+                    completeness_ratio: row.mapping_completeness.unwrap_or(0.0).clamp(0.0,1.0),
+                    dropped_or_missing_count: Some(row.missing_count.max(0) as u64),
+                };
+                match runner.score(window).await {
+                    ShadowOutcome::Completed(score) => tracing::debug!(provider=%score.provider_id, model=%score.model_version, "Gate 5.1 shadow score"),
+                    other => tracing::debug!(outcome=?other, "Gate 5.1 shadow outcome"),
+                }
+            },
+            Ok(Err(err)) => tracing::warn!(error=%err, "Gate 5.1 aggregate query failed; Gate 5 remains unaffected"),
+            Err(_) => tracing::warn!("Gate 5.1 aggregate query timed out; Gate 5 remains unaffected"),
+        }
+        tokio::time::sleep(Duration::from_secs(30)).await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
