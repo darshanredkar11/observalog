@@ -37,7 +37,7 @@ jobs:
         run: python -m py_compile tests/incident_lab/generate.py
       - name: Run Rust unit and adversarial tests
         working-directory: observalog-brain
-        run: cargo test
+        run: cargo test -- --nocapture
       - name: Clippy
         working-directory: observalog-brain
         run: cargo clippy -- -D warnings
