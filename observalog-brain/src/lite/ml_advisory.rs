@@ -166,7 +166,7 @@ impl WindowAccumulator {
         self.invariants += if e.is_invariant_violation { 1 } else { 0 };
         if let Some(t) = e.trace_partition { self.traces.insert(t); }
         if let Some(d) = e.duration_ms {
-            if self.durations.len() < self.max_duration_samples { self.durations.push(d); }
+            self.duration_sum += d; self.duration_count += 1;\n            if self.durations.len() < self.max_duration_samples { self.durations.push(d); }
         }
         if let Some(c) = e.cpu_utilization { self.cpu_sum += c; self.cpu_count += 1; }
         if let Some(m) = e.memory_utilization { self.memory_sum += m; self.memory_count += 1; }
