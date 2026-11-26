@@ -159,11 +159,11 @@ impl WindowAccumulator {
         if e.duration_ms.is_some_and(|d| !d.is_finite() || d < 0.0) { return Err("invalid_duration"); }
         if e.cpu_utilization.is_some_and(|v| !ratio(v)) || e.memory_utilization.is_some_and(|v| !ratio(v)) { return Err("invalid_resource_ratio"); }
         self.seen += 1;
-        self.errors += u64::from(e.is_error);
-        self.failures += u64::from(e.is_failure);
-        self.retries += u64::from(e.is_retry);
-        self.slow += u64::from(e.is_slow);
-        self.invariants += u64::from(e.is_invariant_violation);
+        self.errors += if e.is_error { 1 } else { 0 };
+        self.failures += if e.is_failure { 1 } else { 0 };
+        self.retries += if e.is_retry { 1 } else { 0 };
+        self.slow += if e.is_slow { 1 } else { 0 };
+        self.invariants += if e.is_invariant_violation { 1 } else { 0 };
         if let Some(t) = e.trace_partition { self.traces.insert(t); }
         if let Some(d) = e.duration_ms {
             if self.durations.len() < self.max_duration_samples { self.durations.push(d); }
