@@ -91,3 +91,21 @@ The source text deliberately does not include a `ground_truth` field or root-cau
 The current `main` Fluent Bit configuration is Docker-tail + grep + Kafka, and the current Rust consumer expects the legacy two-line A/B pair in one Kafka message. The existing configuration does not show multiline aggregation that combines the two separately emitted stdout lines. This lab's raw heterogeneous streams are designed for the new adapter path; they are not claimed to work end-to-end with the old parser.
 
 The next integration step is to connect Fluent Bit raw input to the new adapter, persist canonical events, then replay each gate independently. Do not weaken the corpus to accommodate the legacy two-line parser.
+
+
+## Mega functional corpus
+
+`mega_corpus.py` expands synthetic testing to **31 functional classes**, with a default **25,000 base records** and **4% duplicate delivery** (26,000 total records). A fixed seed makes runs repeatable. Scenarios cover healthy baselines, auth/authz failures, upstream timeouts and retries, rate limiting, replica drift, release regression, database contention, idempotency, business invariants, independent incidents, sparse trace context, clock skew, queue backlog, resource pressure, tenant drift/isolation, DNS, schema drift, poison records, mixed formats, overlapping incidents, trace reuse, fan-out, timeouts, latency, contradictory aliases, circuit breaker and recovery.
+
+Generate a corpus:
+
+```bash
+python3 tests/incident_lab/mega_corpus.py --list
+python3 tests/incident_lab/mega_corpus.py --count 25000 --seed 20261126 --duplicate-rate 0.04 --output /tmp/observalog-mega-corpus
+```
+
+Collector input: `/tmp/observalog-mega-corpus/raw/corpus.jsonl`. Evaluator labels: `/tmp/observalog-mega-corpus/ground-truth/labels.json` — **never ingest or mount this directory into Fluent Bit**. Size and seed are configurable, e.g. `--count 100000 --seed 77`.
+
+## Lite showcase
+
+The standalone responsive, Cult UI-inspired showcase and scenario preview is at [docs/lite/site/index.html](../../docs/lite/site/index.html). It can be opened directly. It is a visual product showcase, not a production dashboard or live-runtime integration.
