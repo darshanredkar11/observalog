@@ -1,5 +1,6 @@
 pub mod adapter;
 pub mod gates;
+pub mod ml_advisory;
 pub mod correlation;
 pub mod http;
 pub mod model;
