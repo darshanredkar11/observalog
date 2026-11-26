@@ -1,10 +1,11 @@
-name: Deploy site to GitHub Pages
+name: Deploy ObservaLog Lite site
 
 on:
   push:
-    branches: [main]
+    branches: [lite/chaos-gate-3-5]
     paths:
-      - 'site/**'
+      - 'docs/lite/site/**'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:
@@ -13,25 +14,22 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: lite-pages
   cancel-in-progress: true
 
 jobs:
   deploy:
-    name: Deploy
+    name: Deploy Lite website
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Upload site artifact
+      - name: Upload Lite site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site/
-
-      - name: Deploy to GitHub Pages
+          path: docs/lite/site/
+      - name: Deploy Lite site
         id: deploy
         uses: actions/deploy-pages@v4
