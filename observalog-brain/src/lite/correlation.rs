@@ -701,6 +701,57 @@ mod gate3_correlation_tests {
 
 
     #[test]
+    fn unspecified_tenant_never_joins_a_tenant_scoped_identity() {
+        let mut engine = CorrelationEngine::default();
+        engine.insert(1, event(0, Some("trace-12345678"), None, None, Some("tenant-a"), None, None, None));
+        let plan = engine.plan(2, &event(1, Some("trace-12345678"), None, None, None, None, None, None));
+        assert!(plan.relationships.is_empty());
+        assert_eq!(plan.trace_conflicts.len(), 1);
+    }
+
+    #[test]
+    fn ttl_eviction_releases_identity_index_entries() {
+        let mut engine = CorrelationEngine::default();
+        engine.insert(1, event(0, Some("trace-expired-1"), None, None, None, None, None, None));
+        engine.nodes.get_mut(&1).unwrap().inserted_at = Instant::now() - RESIDENT_TTL;
+        engine.insert(2, event(1, Some("trace-resident-2"), None, None, None, None, None, None));
+
+        assert!(!engine.nodes.contains_key(&1));
+        assert!(engine.identity_index.values().all(|bucket| !bucket.contains(&1)));
+        assert!(engine.nodes.contains_key(&2));
+    }
+
+    #[test]
+    fn resident_capacity_evicts_oldest_event_and_releases_identity_keys() {
+        let mut engine = CorrelationEngine::default();
+        for id in 0..=MAX_RESIDENT_EVENTS as i64 {
+            let trace = format!("trace-id-{id:08}");
+            engine.insert(id, event(id, Some(&trace), None, None, None, None, None, None));
+        }
+
+        assert_eq!(engine.nodes.len(), MAX_RESIDENT_EVENTS);
+        assert!(!engine.nodes.contains_key(&0));
+        assert!(engine.nodes.contains_key(&(MAX_RESIDENT_EVENTS as i64)));
+        assert!(!engine.identity_index.contains_key(&IdentityKey {
+            kind: IdentityKind::Trace,
+            value: "trace-id-00000000".to_string(),
+        }));
+    }
+
+    #[test]
+    fn parent_first_arrival_resolves_child_on_late_child_insert() {
+        let mut engine = CorrelationEngine::default();
+        engine.insert(1, event(0, Some("trace-12345678"), Some("req-1"), Some("order-1"),
+            None, Some("parent-span"), None, None));
+        let plan = engine.plan(2, &event(1, Some("trace-12345678"), Some("req-1"), Some("order-1"),
+            None, Some("child-span"), Some("parent-span"), None));
+        let relation = plan.relationships.iter().find(|edge| edge.relation_type == "parent_child").unwrap();
+        assert_eq!(relation.other_id, 1);
+        assert_eq!(relation.evidence["parent_event_id"], 1);
+        assert_eq!(relation.evidence["child_event_id"], 2);
+    }
+
+    #[test]
     fn adjacency_degree_is_bounded() {
         let mut engine = CorrelationEngine::default();
         for other_id in 2..200 {
