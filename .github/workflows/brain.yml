@@ -2,7 +2,7 @@ name: observalog-brain
 
 on:
   push:
-    branches: [main, lite/streaming-adapter]
+    branches: [main, lite/streaming-adapter, lite/chaos-gate-3-5]
     paths:
       - 'observalog-brain/**'
   pull_request:
