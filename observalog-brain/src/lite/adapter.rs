@@ -17,11 +17,14 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
     let root = parsed.as_ref().or(text_record.as_ref()).unwrap_or(source);
     let format = if parsed.is_some() { "json" } else { "text" };
 
-    let timestamp = find(root, &["timestamp", "@timestamp", "time", "ts", "datetime", "date", "observed_timestamp"])
-        .and_then(|(v, path)| {
-            provenance.insert("event_ts".into(), json!({"source_path":path,"method":"alias"}));
-            parse_timestamp(v)
-        });
+    let timestamp = find_valid(
+        root,
+        &["timestamp", "@timestamp", "time", "ts", "datetime", "date", "observed_timestamp"],
+        |value, _| parse_timestamp(value),
+    ).map(|(parsed, path)| {
+        provenance.insert("event_ts".into(), json!({"source_path":path,"method":"alias"}));
+        parsed
+    });
     let event_ts_inferred = timestamp.is_none();
     let event_ts = timestamp.unwrap_or(observed_at);
     if event_ts_inferred {
@@ -42,11 +45,14 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
     let tenant_id = text_field(root, &["tenant_id", "tenantId", "tenant.id", "tenant"]);
     record_source_path(root, &["tenant_id", "tenantId", "tenant.id", "tenant"], "tenant_id", &mut provenance);
 
-    let severity = find(root, &["severity_text", "severity", "severity_number", "level", "log.level", "levelname", "syslog_severity"])
-        .and_then(|(v, path)| {
-            provenance.insert("severity".into(), json!({"source_path":path,"method":"source-specific-normalization"}));
-            normalize_severity_at(v, &path)
-        });
+    let severity = find_valid(
+        root,
+        &["severity_text", "severity", "severity_number", "level", "log.level", "levelname", "syslog_severity"],
+        normalize_severity_at,
+    ).map(|(normalized, path)| {
+        provenance.insert("severity".into(), json!({"source_path":path,"method":"source-specific-normalization"}));
+        normalized
+    });
     if severity.is_none() {
         quality_flags.push("severity_unknown".into());
     }
@@ -84,12 +90,12 @@ pub fn adapt(raw: &str, source: &Value, observed_at: DateTime<Utc>) -> Canonical
     let outcome = text_field(root, &["outcome", "result", "operation_status"])
         .map(|s| s.to_ascii_lowercase());
     record_source_path(root, &["outcome", "result", "operation_status"], "outcome", &mut provenance);
-    let duration_raw = find(root, &["duration_ms", "durationMs", "elapsed_ms", "latency_ms", "duration"]);
-    let duration_ms = duration_raw.as_ref().and_then(|(v, path)| {
+    let duration_aliases = &["duration_ms", "durationMs", "elapsed_ms", "latency_ms", "duration"];
+    let duration = find_valid(root, duration_aliases, |value, _| parse_number(value));
+    let duration_ms = duration.as_ref().map(|(parsed, _)| *parsed);
+    if let Some((_, path)) = duration {
         provenance.insert("duration_ms".into(), json!({"source_path":path,"method":"numeric"}));
-        parse_number(v)
-    });
-    if duration_raw.is_some() && duration_ms.is_none() {
+    } else if find(root, duration_aliases).is_some() {
         quality_flags.push("duration_invalid".into());
     }
 
@@ -274,6 +280,62 @@ fn find<'a>(value: &'a Value, aliases: &[&str]) -> Option<(&'a Value, String)> {
     for alias in aliases {
         if let Some(found) = find_key(value, alias, "$") {
             return Some(found);
+        }
+    }
+    None
+}
+
+fn find_valid<'a, T>(
+    value: &'a Value,
+    aliases: &[&str],
+    mut parse: impl FnMut(&'a Value, &str) -> Option<T>,
+) -> Option<(T, String)> {
+    if let Value::Object(map) = value {
+        // Preserve root-alias precedence, but continue to the next alias when
+        // a preferred root value is malformed or uses an unsupported variant.
+        for alias in aliases {
+            if let Some(candidate) = map.get(*alias) {
+                let path = format!("$.{alias}");
+                if let Some(parsed) = parse(candidate, &path) {
+                    return Some((parsed, path));
+                }
+            }
+        }
+
+        // Dotted aliases may also be represented as nested root objects.
+        for alias in aliases.iter().filter(|alias| alias.contains('.')) {
+            let mut cursor = value;
+            let mut path = String::from("$");
+            let mut matched = true;
+            for part in alias.split('.') {
+                if let Some(next) = cursor.get(part) {
+                    cursor = next;
+                    path.push('.');
+                    path.push_str(part);
+                } else {
+                    matched = false;
+                    break;
+                }
+            }
+            if matched {
+                if let Some(parsed) = parse(cursor, &path) {
+                    return Some((parsed, path));
+                }
+            }
+        }
+
+        // Finally inspect only recognized telemetry envelopes. Invalid scalar
+        // values at the root must not prevent a valid envelope fallback.
+        for child_key in ["resource", "attributes", "context", "metadata", "fields", "log", "data", "payload", "body"] {
+            if let Some(child) = map.get(child_key) {
+                for alias in aliases {
+                    if let Some((candidate, path)) = find_key(child, alias, &format!("$.{child_key}")) {
+                        if let Some(parsed) = parse(candidate, &path) {
+                            return Some((parsed, path));
+                        }
+                    }
+                }
+            }
         }
     }
     None
