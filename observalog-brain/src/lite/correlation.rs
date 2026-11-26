@@ -673,6 +673,24 @@ mod gate3_correlation_tests {
     }
 
     #[test]
+    fn removing_saturated_endpoint_cleans_one_sided_edges() {
+        let mut engine = CorrelationEngine::default();
+        engine.insert(1, event(0, Some("trace-node-1"), None, None, None, None, None, None));
+        engine.insert(100, event(100, Some("trace-node-100"), None, None, None, None, None, None));
+
+        for other_id in 2..=65 {
+            engine.add_adjacency(1, other_id, "same_trace");
+        }
+        engine.add_adjacency(100, 1, "same_trace");
+        assert!(engine.adjacency.get(&100).unwrap().iter().any(|(id, _)| *id == 1));
+
+        engine.remove(1);
+        assert!(engine.adjacency.values().flatten().all(|(id, _)| *id != 1),
+            "dangling adjacency reference survived removal");
+    }
+
+
+    #[test]
     fn adjacency_degree_is_bounded() {
         let mut engine = CorrelationEngine::default();
         for other_id in 2..200 {
