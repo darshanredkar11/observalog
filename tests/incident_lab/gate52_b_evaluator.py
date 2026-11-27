@@ -137,7 +137,7 @@ def main():
   "false_attribution_rate_nonlocalizable":sum(r["false_attribution"] for r in results if not r["localizable"])/sum(not r["localizable"] for r in results) if any(not r["localizable"] for r in results) else 0,
   "confident_wrong_localizable_rate":sum(r["confident_wrong_localizable"] for r in local)/len(local) if local else None,
   "scenario_summary":by_scenario,"per_scenario":results}
- Path(args.output).write_text(json.dumps(report,indent=2)+"\\n",encoding="utf-8")
+ Path(args.output).write_text(json.dumps(report,indent=2) +"\n",encoding="utf-8")
  print(json.dumps({k:v for k,v in report.items() if k not in ("per_scenario","scenario_summary")},indent=2))
  print(json.dumps(report["scenario_summary"],indent=2))
  if report["status"]!="PASS":raise SystemExit(1)
