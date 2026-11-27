@@ -39,7 +39,7 @@ def event(r,i,c,g,ts):
  elif c=="recovery": msg="Dependency recovered; readiness check passed"
  if r.random()<.03: attrs["noise_marker"]="benign"
  if r.random()<.02: attrs["unknown_field"]="unanticipated"
- return {"event_id":f"evt-{i:09d}","timestamp":ts.isoformat(timespec="milliseconds").replace("+00:00","Z"),"service":s,"instance":instance,"version":version,"region":"ap-south-1","tenant":tenant,"format":r.choice(FORMATS),"level":level,"message":msg,"trace_id":trace,"request_id":req,"entity_id":entity,"outcome":outcome,"duration_ms":dur,"error_code":code,"attributes":attrs,"scenario":c}
+ return {"event_id":f"evt-{i:09d}","timestamp":ts.isoformat(timespec="milliseconds").replace("+00:00","Z"),"service":s,"instance":instance,"version":version,"region":"ap-south-1","tenant":tenant,"format":r.choice(FORMATS),"level":level,"message":msg,"trace_id":trace,"request_id":req,"entity_id":entity,"outcome":outcome,"duration_ms":dur,"error_code":code,"attributes":attrs}
 def main():
  p=argparse.ArgumentParser(); p.add_argument("--count",type=int,default=25000); p.add_argument("--seed",type=int,default=20261126); p.add_argument("--output",default="/tmp/observalog-mega-corpus"); p.add_argument("--duplicate-rate",type=float,default=.04); p.add_argument("--list",action="store_true"); a=p.parse_args()
  if a.count<1 or not 0<=a.duplicate_rate<=1: p.error("count must be positive and duplicate-rate 0..1")
@@ -48,7 +48,7 @@ def main():
  for i in range(a.count):
   c=CASES[i%len(CASES)]; g=i//len(CASES); ts=BASE+timedelta(milliseconds=i*17+r.randint(-500,500)); e=event(r,i,c,g,ts); rows.append(e); labels.append({"event_id":e["event_id"],"scenario":c,"group":g,"expected_class":c})
  n=int(a.count*a.duplicate_rate)
- for e in r.sample(rows,n): d=dict(e); d["collector_duplicate"]=True; rows.append(d)
+ for e in r.sample(rows,n): rows.append(dict(e))
  r.shuffle(rows)
  with (raw/"corpus.jsonl").open("w",encoding="utf-8") as f:
   for e in rows: f.write(json.dumps(e,separators=(",",":"))+"\n")
