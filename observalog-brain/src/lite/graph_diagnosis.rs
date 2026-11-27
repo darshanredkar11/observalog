@@ -3,7 +3,7 @@
 //! Shadow-only pure evaluator. It ranks service candidates from typed evidence,
 //! never treats timestamp proximity or shared trace/request membership as causality.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiagnosticEvent {
