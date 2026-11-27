@@ -33,5 +33,27 @@ The module includes unit tests for:
 5. unrelated concurrent failures abstention;
 6. unknown IDs in edges ignored.
 
+## Gate 5.2-B corpus evaluation (first baseline)
+
+Evaluated 22 scenarios × 3 deterministic permutations (66 streams), seed 20261127. Ground truth was consulted only after scoring. This was a prototype evaluator, not runtime ingestion.
+
+| Metric | Result |
+|---|---:|
+| Service-localizable streams | 18 / 66 |
+| Top-1 accuracy (localizable) | 33.3% |
+| Top-3 accuracy (localizable) | 100% |
+| MRR (localizable) | 0.806 |
+| Winner coverage | 22.7% |
+| Abstention rate | 77.3% |
+| False attribution rate on non-localizable streams | 13.6% |
+| Confident wrong on localizable streams | 0% |
+
+**Interpretation:** The top-3 candidate ranking is promising, but Top-1 and coverage are weak. Most streams abstain. False winners are concentrated in provider retry storm, tenant feature-flag drift, and unrelated concurrent failures (3 permutations each). We must fix those false attributions before adding sequence ML. Metrics are synthetic-corpus only and are not product claims.
+
+The truth mapper was tightened to reject composite and external-dependency labels as service targets. Healthy and multi-incident scenarios remain abstention targets. The Python scorer remains separate from the Rust prototype and must be kept aligned.
+
 ## Next
-Gate 5.2-B CI runs targeted module tests, then cumulative Rust test compilation. If broader suite is blocked by known existing failures, report that separately rather than treating the prototype gate as green.
+- Fix false attributions on non-localizable/multi-incident cases.
+- Improve useful coverage only with explicit evidence (dependency, cohort, typed structural edges), never by lowering thresholds blindly.
+- Re-run the full 66-stream evaluator after each change and inspect per-scenario regressions.
+- Keep shadow-only; no production wiring.
