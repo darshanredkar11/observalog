@@ -115,14 +115,23 @@ pub fn rank(events: &[DiagnosticEvent], edges: &[EvidenceEdge]) -> Diagnosis {
 
     let mut candidates: Vec<Candidate> = scores.into_values().collect();
     candidates.sort_by(|a,b| b.score.total_cmp(&a.score).then_with(|| a.service.cmp(&b.service)));
-    let winner = candidates.first().filter(|c| c.score >= ABSTAIN_SCORE
-        && (c.direct_failures > 0 || c.upstream_failure_links > 0)).map(|c| c.service.clone());
+    let top_is_eligible = candidates.first().is_some_and(|c| c.score >= ABSTAIN_SCORE
+        && (c.direct_failures > 0 || c.upstream_failure_links > 0));
+    let ambiguous_top = candidates.get(1).is_some_and(|second|
+        candidates.first().is_some_and(|first| (first.score - second.score).abs() < 1e-9));
+    let winner = if top_is_eligible && !ambiguous_top {
+        candidates.first().map(|c| c.service.clone())
+    } else {
+        None
+    };
     let abstained = winner.is_none();
     Diagnosis {
         abstained,
         likely_initiator: winner,
         candidates,
-        note: if abstained {
+        note: if ambiguous_top {
+            "Top candidates are tied; abstain instead of choosing by lexical order."
+        } else if abstained {
             "Insufficient graph-supported evidence; abstain rather than infer cause from temporal or correlation-only links."
         } else {
             "Ranked hypothesis only; graph support does not prove causality."
@@ -147,6 +156,18 @@ mod tests {
         assert!(!d.abstained);
         assert!(d.candidates[0].upstream_failure_links > 0);
         assert!(d.candidates.iter().find(|c| c.service=="checkout").unwrap().score < d.candidates[0].score);
+    }
+
+    #[test]
+    fn tied_multiple_failure_services_abstain_instead_of_lexical_winner() {
+        let events = vec![
+            e(1,"identity",10,true,Some("v1")), e(2,"identity",11,true,Some("v1")),
+            e(3,"payments",12,true,Some("v1")), e(4,"payments",13,true,Some("v1")),
+        ];
+        let d = rank(&events, &[]);
+        assert!(d.abstained);
+        assert_eq!(d.likely_initiator, None);
+        assert_eq!(d.candidates[0].score, d.candidates[1].score);
     }
 
     #[test]
