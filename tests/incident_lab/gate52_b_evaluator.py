@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gate 5.2-B: permutation-robust evaluator; scorer never sees ground truth."""
+"""Gate 5.2-B: permutation-robust evaluator; scorer never sees ground truth. Re-run after Rust parity fixes."""
 from __future__ import annotations
 import argparse, importlib.util, json, random, re
 from pathlib import Path
