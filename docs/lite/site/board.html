@@ -1,74 +1,67 @@
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ObservaLog Lite · Live diagnosis board</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ObservaLog · Diagnosis</title>
 <style>
-:root{color-scheme:dark;--bg:#0b1012;--panel:#131b1d;--line:#253235;--muted:#91a2a0;--text:#edf5f2;--lime:#c9fa62;--red:#ff6f65;--amber:#f2c66d;--cyan:#77d8ce}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
-header{padding:22px clamp(16px,4vw,48px);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}
-.brand{font-weight:800;font-size:18px;letter-spacing:-.04em}.brand small{font-size:11px;color:var(--muted);font-weight:500;margin-left:9px}
-#status{font:11px ui-monospace;color:var(--muted)}#status:before{content:"● ";color:var(--amber)}#status.ok:before{color:var(--lime)}
-main{max-width:1480px;margin:auto;padding:24px clamp(16px,4vw,48px)}
-.config{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
-input{background:#0e1517;border:1px solid var(--line);color:var(--text);padding:11px 12px;border-radius:9px;min-width:190px;flex:1}
-button{background:var(--lime);color:#101614;border:0;padding:11px 15px;border-radius:9px;font-weight:800;cursor:pointer}
-.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:17px}
-.k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}.v{font-size:27px;font-weight:750;letter-spacing:-.04em;margin-top:6px}.sub{font-size:11px;color:var(--muted);margin-top:3px}
-.split{display:grid;grid-template-columns:1fr 1.2fr;gap:12px;margin-top:12px}
-h2{font-size:14px;margin:0 0 13px;letter-spacing:-.01em}
-table{width:100%;border-collapse:collapse;font-size:12px}td,th{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-weight:500}
-.svc{font-family:ui-monospace,monospace}.pill{display:inline-block;padding:2px 7px;border-radius:20px;font-size:10px;background:#253235;color:var(--muted)}.pill.bad{background:#412524;color:var(--red)}.pill.good{background:#25331d;color:var(--lime)}
-.logs{max-height:520px;overflow:auto;display:grid;gap:6px}.log{display:grid;grid-template-columns:90px 130px 65px 1fr;gap:8px;padding:9px;border-bottom:1px solid #202a2c;font:11px ui-monospace;align-items:start}.time{color:var(--muted)}.severity{color:var(--cyan)}.severity.ERROR,.severity.FATAL{color:var(--red)}.msg{overflow-wrap:anywhere;color:#d3ded9}
-.findings{display:grid;gap:8px}.finding{border:1px solid var(--line);border-left:3px solid var(--amber);padding:12px;border-radius:9px}.finding strong{display:block}.finding p{margin:5px 0;color:var(--muted);font-size:12px}.confidence{color:var(--lime);font:11px ui-monospace}
-.ready{margin-top:12px;border:1px solid var(--line);border-radius:13px;padding:16px;background:var(--panel)}.ready h2{margin-bottom:8px}.checks{display:flex;gap:8px;flex-wrap:wrap}.check{padding:7px 10px;border:1px solid var(--line);border-radius:8px;color:var(--muted);font-size:11px}.check.pass{color:var(--lime);border-color:#415633}
-.empty{color:var(--muted);font-size:12px;padding:14px 4px}
-footer{padding:22px 0;color:var(--muted);font-size:11px}
-@media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.split{grid-template-columns:1fr}.log{grid-template-columns:75px 100px 60px 1fr}}
-@media(max-width:540px){.grid{grid-template-columns:repeat(2,1fr)}.v{font-size:23px}.log{grid-template-columns:1fr;gap:3px}.config{display:grid}.config input{width:100%}}
-</style>
-</head>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
+:root{color-scheme:dark;--bg:#090b0e;--surface:#101318;--surface2:#141920;--border:#252a31;--text:#e9edf2;--muted:#858f9c;--lime:#d5ff67;--red:#ff686d;--amber:#ffbe55;--blue:#87baff;--radius:16px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px Manrope,system-ui,sans-serif;min-height:100vh}
+header{height:66px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 4vw;position:sticky;top:0;background:#090b0eea;backdrop-filter:blur(12px);z-index:5}
+.logo{font-weight:800;letter-spacing:-.5px;font-size:16px}.logo span{color:var(--lime)}.meta{font:11px 'DM Mono';color:var(--muted)}.pulse{display:inline-block;width:7px;height:7px;background:var(--lime);border-radius:100%;margin-right:8px;box-shadow:0 0 12px #d5ff6777}
+main{max-width:1480px;margin:0 auto;padding:30px 4vw}
+.topline{display:flex;justify-content:space-between;align-items:end;margin-bottom:22px;gap:20px}.eyebrow{font:10px 'DM Mono';letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:8px}
+h1{font-size:30px;letter-spacing:-1.3px;margin:0;font-weight:800}h2{font-size:14px;letter-spacing:-.2px;margin:0 0 14px;font-weight:700}
+.connect{display:flex;gap:8px;align-items:center}input{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px 12px;font:12px 'DM Mono';min-width:170px}button{cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--text);padding:9px 13px;border-radius:10px;font:600 12px Manrope;transition:.15s}button:hover{border-color:#5a636e;transform:translateY(-1px)}button.primary{background:var(--lime);border-color:var(--lime);color:#0b0e0a}
+.layout{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(300px,1fr);gap:14px}.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.current{padding:20px 22px;min-height:240px}.incident-label{font:10px 'DM Mono';color:var(--red);letter-spacing:.12em;text-transform:uppercase;display:flex;align-items:center;gap:8px}.incident-label i{width:6px;height:6px;border-radius:50%;background:var(--red);box-shadow:0 0 10px #ff686d70}.issue-title{font-size:22px;font-weight:800;letter-spacing:-.7px;margin:13px 0 8px;line-height:1.25}.cause{color:#b8c2cf;font-size:13px;line-height:1.7}.tags{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0}.tag{font:10px 'DM Mono';border:1px solid var(--border);color:var(--muted);padding:5px 8px;border-radius:8px}.tag.red{color:var(--red);border-color:#4c2c32}.tag.lime{color:var(--lime);border-color:#3b4a2c}.divider{border-top:1px solid var(--border);margin:16px 0}
+.graph-panel{padding:17px 20px}.graph{width:100%;height:205px;display:block}.node{fill:#171c22;stroke:#343c46;stroke-width:1.3}.node.root{fill:#291b1e;stroke:#a84a52}.node.symptom{fill:#1b222a;stroke:#637b9d}.edge{stroke:#59636d;stroke-width:1.5;stroke-dasharray:4 4}.edge.active{stroke:var(--red);stroke-dasharray:none}.graph text{font-family:'DM Mono';font-size:10px;fill:#b5bfca}.graph .label{font-size:9px;fill:var(--muted)}
+.graph-legend{font:10px 'DM Mono';color:var(--muted);display:flex;gap:14px}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}.dot.root{background:var(--red)}.dot.sym{background:var(--blue)}
+.history{padding:18px 20px}.history-head{display:flex;align-items:center;justify-content:space-between}.history-head .muted{font:10px 'DM Mono';color:var(--muted)}
+.issue-list{display:grid;gap:8px}.issue-row{padding:12px;border:1px solid var(--border);border-radius:12px;background:#0d1115;cursor:pointer;transition:.14s}.issue-row:hover,.issue-row.selected{border-color:#56616b;background:#151a20}.issue-row.selected{box-shadow:inset 2px 0 var(--lime)}.row-title{font-size:12px;font-weight:700}.row-meta{display:flex;justify-content:space-between;gap:10px;margin-top:7px;color:var(--muted);font:10px 'DM Mono'}.status{color:var(--amber)}.status.resolved{color:var(--lime)}.pager{display:flex;justify-content:space-between;align-items:center;margin-top:13px;color:var(--muted);font:10px 'DM Mono'}.pager button{padding:6px 10px}.pager button:disabled{opacity:.35;cursor:default}
+.evidence{padding:17px 20px}.evidence-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.ev{border:1px solid var(--border);border-radius:10px;padding:10px;background:#0d1115}.ev small{color:var(--muted);font:10px 'DM Mono'}.ev div{font-size:12px;margin-top:5px}.logs{max-height:300px;overflow:auto;display:grid;gap:6px;margin-top:12px}.log{display:grid;grid-template-columns:90px 110px 1fr;gap:8px;padding:8px;border:1px solid #21262d;border-radius:8px;background:#0d1115;font:10px 'DM Mono'}.log .time{color:var(--muted)}.log .svc{color:var(--blue)}.log .msg{color:#c0c8d1;overflow-wrap:anywhere}.empty{padding:15px;color:var(--muted);font-size:12px}
+.reason{padding:18px 20px}.reason p{font-size:12px;color:#b5bfca;line-height:1.7;margin:0}.reason .heading{font:10px 'DM Mono';text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:9px}.alt{margin-top:12px;border:1px solid var(--border);border-radius:9px;padding:10px;font-size:11px;color:var(--muted)}
+#toast{font:11px 'DM Mono';color:var(--muted)}.footer{margin-top:18px;color:#5d6772;font:10px 'DM Mono'}
+@media(max-width:900px){.layout{grid-template-columns:1fr}.topline{align-items:start;flex-direction:column}.connect{width:100%;flex-wrap:wrap}.connect input{flex:1;min-width:160px}}
+@media(max-width:520px){main{padding:20px 14px}.current{padding:16px}.issue-title{font-size:19px}.graph-panel,.history,.evidence,.reason{padding:15px}.evidence-grid{grid-template-columns:1fr}.log{grid-template-columns:70px 90px 1fr}}
+</style></head>
 <body>
-<header><div class="brand">ObservaLog Lite <small>LIVE DIAGNOSIS BOARD</small></div><div id="status">Disconnected</div></header>
+<header><div class="logo">Observa<span>Log</span> <span style="color:#77818b;font-weight:500">/ lite</span></div><div class="meta" id="connection"><span class="pulse"></span>ISSUE STREAM · CONNECTING</div></header>
 <main>
-<div class="config"><input id="api" placeholder="Brain API base URL · e.g. https://your-brain.onrender.com"><input id="token" placeholder="Ingest / dashboard token" type="password"><button id="connect">Connect</button></div>
-<section class="grid">
-<div class="card"><div class="k">Events · last 60 min</div><div class="v" id="events">—</div><div class="sub">Processed canonical events</div></div>
-<div class="card"><div class="k">Errors · last 60 min</div><div class="v" id="errors">—</div><div class="sub">ERROR / FATAL severity</div></div>
-<div class="card"><div class="k">Services active</div><div class="v" id="services">—</div><div class="sub" id="serviceSub">Readiness target: 10+</div></div>
-<div class="card"><div class="k">Queue backlog</div><div class="v" id="queue">—</div><div class="sub" id="queueSub">Pending / leased / dead</div></div>
-</section>
-<div class="ready"><h2>First 60-minute soak readiness</h2><div class="checks" id="checks"><span class="check">Connect to Brain API</span><span class="check">≥10 active services</span><span class="check">Live event feed</span><span class="check">Queue healthy</span></div></div>
-<div class="split">
-<section class="card"><h2>Services · last hour</h2><div id="serviceTable" class="empty">Waiting for data</div></section>
-<section class="card"><h2>Incident diagnosis · evidence-backed findings</h2><div id="findings" class="findings"><div class="empty">No diagnosis feed yet</div></div></section>
+<div class="topline"><div><div class="eyebrow">Forensic diagnosis</div><h1>What is happening?</h1></div>
+<div class="connect"><input id="api" placeholder="Brain API URL"><input id="token" type="password" placeholder="Access token"><button class="primary" id="connectBtn">Connect</button></div></div>
+<div class="layout">
+<div style="display:grid;gap:14px;align-content:start">
+<section class="panel current" id="current"><div class="incident-label"><i></i>Current issue</div><div class="issue-title" id="currentTitle">Waiting for diagnoses</div><div class="cause" id="currentCause">Connect ObservaLog Brain to receive diagnosis updates.</div><div class="tags" id="currentTags"><span class="tag">No active issue feed</span></div></section>
+<section class="panel graph-panel"><h2>Causal evidence graph</h2><div id="graph"><div class="empty">Select an issue to inspect cause → propagation → symptom.</div></div><div class="graph-legend"><span><i class="dot root"></i>Suspected cause</span><span><i class="dot sym"></i>Observed symptom</span></div></section>
+<section class="panel evidence"><h2>Evidence log · linked to diagnosis</h2><div class="evidence-grid" id="evidenceSummary"><div class="empty">Evidence is attached when an issue is selected.</div></div><div class="logs" id="logs"></div></section>
+<section class="panel reason"><div class="heading">Diagnostic reasoning</div><p id="reasonText">Waiting for diagnosis feed. Evidence and counter-evidence will be displayed with each issue.</p><div id="alternatives"></div></section>
 </div>
-<section class="card" style="margin-top:12px"><h2>Live log feed <span class="pill" id="logCount">polling</span></h2><div id="logs" class="logs"><div class="empty">Connect to start streaming</div></div></section>
-<footer>Polling cadence: 3 seconds · Read-only board · diagnosis is a hypothesis, not a causal guarantee</footer>
+<aside class="panel history"><div class="history-head"><h2>Issues</h2><span class="muted" id="issueTotal">—</span></div><div class="issue-list" id="issueList"><div class="empty">Connect to load issue history.</div></div><div class="pager"><button id="prev">← Prev</button><span id="pageText">Page —</span><button id="next">Next →</button></div><div class="footer">Newest diagnosis first · click issue to inspect</div></aside>
+</div>
+<div class="footer" id="toast">Read-only diagnosis board · refresh cadence 3 seconds · SSE support will replace polling when available</div>
 </main>
 <script>
-const $=id=>document.getElementById(id);let timer=null,connected=false;
-const base=()=> $('api').value.trim().replace(/\/$/,'');
-const headers=()=>({'x-observalog-token':$('token').value.trim()});
-function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-async function get(path){const r=await fetch(base()+path,{headers:headers(),cache:'no-store'});if(!r.ok)throw Error(r.status+' '+r.statusText);return r.json()}
-function renderServices(items){if(!items.length){$('serviceTable').innerHTML='<div class="empty">No service events observed yet</div>';return}
-$('serviceTable').innerHTML='<table><thead><tr><th>Service</th><th>Events</th><th>Errors</th><th>Last seen</th></tr></thead><tbody>'+items.map(s=>'<tr><td class="svc">'+esc(s.service)+'</td><td>'+s.events+'</td><td><span class="pill '+(s.errors?'bad':'good')+'">'+s.errors+'</span></td><td>'+esc(s.last_seen?new Date(s.last_seen).toLocaleTimeString():'—')+'</td></tr>').join('')+'</tbody></table>'}
-function renderFindings(items){if(!items.length){$('findings').innerHTML='<div class="empty">No stored findings yet. New hypotheses will appear here as the reasoning gate emits findings.</div>';return}
-$('findings').innerHTML=items.map(f=>'<article class="finding"><strong>'+esc(f.title||f.category)+'</strong><p>'+esc(f.likely_cause)+'</p><div class="confidence">Confidence '+Math.round((f.confidence||0)*100)+'% · '+esc((f.affected_services||[]).join(', '))+'</div><p>Evidence event IDs: '+esc((f.evidence_event_ids||[]).join(', '))+'</p></article>').join('')}
-function renderLogs(items){if(!items.length){$('logs').innerHTML='<div class="empty">No canonical events yet</div>';return}
-$('logs').innerHTML=items.map(e=>'<div class="log"><span class="time">'+esc(e.observed_at?new Date(e.observed_at).toLocaleTimeString():'—')+'</span><span class="svc">'+esc(e.service||'unknown-service')+'</span><span class="severity '+esc(e.severity||'INFO')+'">'+esc(e.severity||'INFO')+'</span><span class="msg">'+esc(e.message||e.error_code||e.outcome||'event received')+'</span></div>').join('')}
-function setChecks(count,dead,hasFeed){const c=[['Connected',connected],['10+ services',count>=10],['Live events',hasFeed],['No dead queue',dead===0]];$('checks').innerHTML=c.map(([t,p])=>'<span class="check '+(p?'pass':'')+'">'+(p?'✓ ':'○ ')+t+'</span>').join('')}
-async function refresh(){try{const [s,l,f]=await Promise.all([get('/api/dashboard/summary'),get('/api/logs?limit=75'),get('/api/findings')]);
-connected=true;$('status').textContent='Connected · refreshed '+new Date().toLocaleTimeString();$('status').className='ok';
-$('events').textContent=s.event_count??0;$('errors').textContent=s.error_count??0;$('services').textContent=s.service_count??0;$('serviceSub').textContent=(s.service_count>=10?'10-service target reached':'Need '+(10-(s.service_count||0))+' more services');
-$('queue').textContent=(s.queue.pending||0)+' / '+(s.queue.leased||0)+' / '+(s.queue.dead||0);$('queueSub').textContent='Pending / leased / dead';
-renderServices(s.services||[]);renderLogs(l.events||[]);renderFindings(f.findings||[]);$('logCount').textContent=(l.events||[]).length+' recent';
-setChecks(s.service_count||0,s.queue.dead||0,(l.events||[]).length>0);
-}catch(e){connected=false;$('status').textContent='Disconnected · '+e.message;$('status').className='';setChecks(0,1,false)}}
-$('connect').onclick=()=>{if(!base()||!$('token').value.trim()){alert('Enter API base URL and token first.');return}sessionStorage.setItem('observalog_api',base());sessionStorage.setItem('observalog_token',$('token').value.trim());if(timer)clearInterval(timer);refresh();timer=setInterval(refresh,3000)};
-$('api').value=sessionStorage.getItem('observalog_api')||'';
-$('token').value=sessionStorage.getItem('observalog_token')||'';
-if($('api').value&&$('token').value){$('connect').click()}
+const $=id=>document.getElementById(id);let api='',token='',page=1,pageSize=12,totalPages=1,issues=[],selected=null,timer=null;
+function esc(x){return String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function hdr(){return {'x-observalog-token':token}}
+async function fetchJson(path){const r=await fetch(api+path,{headers:hdr(),cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);return r.json()}
+function getTitle(f){return f.title||f.category||'Unclassified issue'}
+function renderCurrent(f){if(!f){$('currentTitle').textContent='No active diagnosis';$('currentCause').textContent='No findings currently stored.';$('currentTags').innerHTML='<span class="tag">No issues</span>';return}
+$('currentTitle').textContent=getTitle(f);$('currentCause').textContent=f.likely_cause||'Cause not yet established.';$('currentTags').innerHTML='<span class="tag red">'+esc(f.category||'incident')+'</span><span class="tag lime">'+Math.round((f.confidence||0)*100)+'% confidence</span><span class="tag">'+(f.affected_services||[]).length+' affected services</span><span class="tag">ID '+f.id+'</span>'}
+function graph(f){const services=(f.affected_services||[]).map(s=>typeof s==='string'?s:(s.service||s.name||JSON.stringify(s)));const evidenceIds=(f.evidence_event_ids||[]);const root=services[0]||'suspected-cause',middle=services[1]||'propagation',symptom=services[2]||'observed-symptom';
+$('graph').innerHTML='<svg class="graph" viewBox="0 0 760 210" role="img" aria-label="Causal evidence graph"><defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6" fill="#7c8794"/></marker></defs><path class="edge active" d="M240 102 L340 102" marker-end="url(#arrow)"/><path class="edge" d="M470 102 L565 102" marker-end="url(#arrow)"/><rect class="node root" x="22" y="56" width="220" height="92" rx="12"/><rect class="node" x="340" y="56" width="130" height="92" rx="12"/><rect class="node symptom" x="565" y="56" width="170" height="92" rx="12"/><text x="40" y="82" class="label">ROOT / PRIMARY</text><text x="40" y="108">'+esc(root.slice(0,26))+'</text><text x="40" y="128" class="label">'+evidenceIds.length+' evidence refs</text><text x="354" y="82" class="label">RELATED</text><text x="354" y="108">'+esc(middle.slice(0,15))+'</text><text x="354" y="128" class="label">impact / chain</text><text x="580" y="82" class="label">SYMPTOM</text><text x="580" y="108">'+esc(symptom.slice(0,20))+'</text><text x="580" y="128" class="label">affected</text></svg>'}
+function renderEvidence(f){const ids=f.evidence_event_ids||[];$('evidenceSummary').innerHTML='<div class="ev"><small>Primary evidence</small><div>Event #'+esc(f.primary_event_id??'—')+'</div></div><div class="ev"><small>Evidence set</small><div>'+ids.length+' referenced event(s)</div></div><div class="ev"><small>First seen</small><div>'+esc(f.first_seen?new Date(f.first_seen).toLocaleString():'—')+'</div></div><div class="ev"><small>Last update</small><div>'+esc(f.last_seen?new Date(f.last_seen).toLocaleString():'—')+'</div></div>';
+$('logs').innerHTML=ids.length?ids.map(id=>'<div class="log"><span class="time">event #'+esc(id)+'</span><span class="svc">Evidence ref</span><span class="msg">Linked event ID · log detail lookup not yet wired</span></div>').join('':'<div class="empty">No event evidence linked yet.</div>')}
+function renderReason(f){$('reasonText').textContent=f.likely_cause||'No causal explanation recorded.';const alternatives=f.alternatives||[];$('alternatives').innerHTML=alternatives.length?'<div class="alt"><b>Alternative explanations</b><br>'+alternatives.map(x=>esc(typeof x==='string'?x:JSON.stringify(x))).join('<br>')+'</div>':''}
+function selectIssue(f){selected=f;renderCurrent(f);graph(f);renderEvidence(f);renderReason(f);document.querySelectorAll('.issue-row').forEach(el=>el.classList.toggle('selected',el.dataset.id==f.id))}
+function renderIssues(){if(!issues.length){$('issueList').innerHTML='<div class="empty">No diagnosis records yet. The list updates as findings are emitted.</div>';return}
+$('issueList').innerHTML=issues.map(f=>'<div class="issue-row '+(selected&&selected.id===f.id?'selected':'')+'" data-id="'+esc(f.id)+'"><div class="row-title">'+esc(getTitle(f))+'</div><div class="row-meta"><span class="status">'+esc(f.category||'issue')+'</span><span>'+Math.round((f.confidence||0)*100)+'%</span></div><div class="row-meta"><span>'+(f.affected_services||[]).length+' service(s)</span><span>'+esc(f.last_seen?new Date(f.last_seen).toLocaleTimeString():'')+'</span></div></div>').join('');
+document.querySelectorAll('.issue-row').forEach(el=>el.onclick=()=>selectIssue(issues.find(x=>String(x.id)===el.dataset.id)))}
+function pageControls(){ $('issueTotal').textContent=totalPages>1?'Page '+page+' of '+totalPages+' · '+$('issueTotal').dataset.total+' total':' '+$('issueTotal').dataset.total+' total';$('pageText').textContent='Page '+page+' / '+totalPages;$('prev').disabled=page<=1;$('next').disabled=page>=totalPages}
+async function loadIssues(){const data=await fetchJson('/api/findings?page='+page+'&page_size='+pageSize);issues=data.findings||[];totalPages=Math.max(1,data.total_pages||1);$('issueTotal').dataset.total=data.total??0;pageControls();renderIssues();if(!selected||!issues.some(f=>f.id===selected.id)){selectIssue(issues[0]||null)}else{const updated=issues.find(f=>f.id===selected.id);selectIssue(updated)}}
+async function refresh(){try{await loadIssues();$('connection').innerHTML='<span class="pulse"></span>ISSUE STREAM · LIVE POLL '+new Date().toLocaleTimeString();}catch(e){$('connection').textContent='● CONNECTION LOST · '+e.message}}
+$('prev').onclick=()=>{if(page>1){page--;loadIssues().catch(console.error)}};
+$('next').onclick=()=>{if(page<totalPages){page++;loadIssues().catch(console.error)}};
+$('connectBtn').onclick=()=>{api=$('api').value.trim().replace(/\/$/,'');token=$('token').value.trim();if(!api||!token){alert('Enter Brain API URL and token.');return}if(timer)clearInterval(timer);refresh();timer=setInterval(refresh,3000)};
+$('api').value=sessionStorage.getItem('observalog_board_api')||'';$('token').value=sessionStorage.getItem('observalog_board_token')||'';
+if($('api').value&&$('token').value){api=$('api').value;token=$('token').value;$('connectBtn').click()}
 </script></body></html>
