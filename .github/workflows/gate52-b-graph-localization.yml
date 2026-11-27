@@ -1,0 +1,29 @@
+name: Gate 5.2-B Deterministic Graph Localization
+on:
+  push:
+    branches: [lite/chaos-gate-3-5]
+    paths:
+      - observalog-brain/src/lite/graph_diagnosis.rs
+      - observalog-brain/src/lite/mod.rs
+      - observalog-brain/docs/GATE_5_2_B_GRAPH_LOCALIZATION.md
+      - .github/workflows/gate52-b-graph-localization.yml
+  pull_request:
+    branches: [lite/chaos-gate-3-5]
+    paths:
+      - observalog-brain/src/lite/graph_diagnosis.rs
+      - observalog-brain/src/lite/mod.rs
+      - observalog-brain/docs/GATE_5_2_B_GRAPH_LOCALIZATION.md
+      - .github/workflows/gate52-b-graph-localization.yml
+  workflow_dispatch:
+jobs:
+  gate52b:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run graph localization unit tests
+        working-directory: observalog-brain
+        run: cargo test graph_diagnosis --lib
+      - name: Compile full Rust test suite
+        working-directory: observalog-brain
+        run: cargo test --lib --no-run
