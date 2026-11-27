@@ -4,6 +4,7 @@ on:
     branches: [lite/chaos-gate-3-5]
     paths:
       - 'docs/lite/dashboard/**'
+      - '.github/workflows/dashboard-build-deploy.yml'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 permissions:
@@ -25,8 +26,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: docs/lite/dashboard/package-lock.json
       - name: Install dashboard dependencies
         working-directory: docs/lite/dashboard
         run: npm install
