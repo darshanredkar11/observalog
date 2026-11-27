@@ -45,7 +45,7 @@ def score(events):
 def map_target(primary_entity, category, events):
  """Conservative target mapping: service/version or exact instance.
  Healthy and multi-incident cases are not single-root targets."""
- if category in {"healthy", "multiple_incidents", "multiple_independent_events"} or not primary_entity:
+ if category in {"healthy", "multiple_incidents", "multiple_independent_events", "external_dependency"} or not primary_entity:
   return None
  text=primary_entity.lower().strip()
  matches=set()
