@@ -12,34 +12,52 @@ def load_generator(path):
  module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); return module
 
 def score(events):
- """Deterministic service-level baseline: errors plus explicit failed parent/child."""
+ """Deterministic scorer mirroring Gate 5.2-B's typed/contrast requirements."""
  scores={}
- def ensure(service):
-  return scores.setdefault(service,{"score":0.0,"failures":0,"upstream_links":0,"downstream_links":0})
- def failed(e): return e.get("level") in ("ERROR","FATAL") or e.get("outcome")=="failure"
+ def ensure(s):
+  return scores.setdefault(s,{"score":0.0,"failures":0,"upstream_links":0,"downstream_links":0,"contrast_evidence":0})
+ def failed(e):return e.get("level") in ("ERROR","FATAL") or e.get("outcome")=="failure"
  for e in events:
   c=ensure(e["service"])
   if failed(e):
    c["failures"]+=1;c["score"]+=1.0
-   if e.get("error_code") or e.get("attrs"): c["score"]+=0.5
+   if e.get("error_code") or e.get("attrs"):c["score"]+=0.5
  for child in events:
   parent_id=child.get("parent_span_id")
-  if not parent_id or not failed(child): continue
+  if not parent_id or not failed(child):continue
   for parent in events:
-   if parent is child or parent.get("span_id")!=parent_id or parent["service"]==child["service"]: continue
+   if parent is child or parent.get("span_id")!=parent_id or parent["service"]==child["service"]:continue
+   if parent.get("offset_ms",0)>child.get("offset_ms",0):continue
    same_flow=((child.get("trace_id") and child.get("trace_id")==parent.get("trace_id")) or
-               (child.get("request_id") and child.get("request_id")==parent.get("request_id")))
+      (child.get("request_id") and child.get("request_id")==parent.get("request_id")))
    if same_flow and failed(parent):
-    pc=ensure(parent["service"]); cc=ensure(child["service"])
+    pc=ensure(parent["service"]);cc=ensure(child["service"])
     pc["upstream_links"]+=1;pc["score"]+=1.75
     cc["downstream_links"]+=1;cc["score"]-=0.75
+ # Typed cohort contrasts: failing version vs healthy alternate version,
+ # or failing replica vs healthy same-version peer.
+ failed_versions={};healthy_versions={};failed_instances={};healthy_instances={}
+ for e in events:
+  v=e.get("version")
+  if not v:continue
+  key=e["service"]
+  if failed(e):
+   failed_versions.setdefault(key,set()).add(v)
+   if e.get("instance"):failed_instances.setdefault((key,v),set()).add(e["instance"])
+  else:
+   healthy_versions.setdefault(key,set()).add(v)
+   if e.get("instance"):healthy_instances.setdefault((key,v),set()).add(e["instance"])
+ for service,candidate in scores.items():
+  vcontrast=any(fv!=hv for fv in failed_versions.get(service,set()) for hv in healthy_versions.get(service,set()))
+  icontrast=any(fi!=hi for (s,v),fis in failed_instances.items() if s==service for fi in fis for hi in healthy_instances.get((s,v),set()))
+  if vcontrast or icontrast:
+   candidate["contrast_evidence"]+=1;candidate["score"]+=1.5
  ranked=sorted(scores.items(),key=lambda kv:(-kv[1]["score"],kv[0]))
  candidates=[{"service":s,**v} for s,v in ranked]
- # Abstain on a tied top score: no deterministic alphabetical guess masquerades as diagnosis.
  winner=None
- if candidates and candidates[0]["score"]>=2 and (candidates[0]["failures"] or candidates[0]["upstream_links"]):
-  tied=len(candidates)>1 and abs(candidates[0]["score"]-candidates[1]["score"])<1e-9
-  if not tied: winner=candidates[0]["service"]
+ if candidates and candidates[0]["score"]>=2 and (candidates[0]["upstream_links"] or candidates[0]["contrast_evidence"]):
+  tie=len(candidates)>1 and abs(candidates[0]["score"]-candidates[1]["score"])<1e-9
+  if not tie:winner=candidates[0]["service"]
  return candidates,winner
 
 def map_target(primary_entity, category, events):
@@ -81,7 +99,7 @@ def run_case(name,factory,seed,permutation):
  correct=bool(localizable and winner==target)
  return {"scenario":name,"permutation":permutation,"target_service":target,
   "winner":winner,"ranked_candidates":ranked[:5],"localizable":localizable,
-  "top1_correct":correct,"top3_correct":bool(localizable and target in top3),
+  "candidate_top1_correct":bool(localizable and ranked and ranked[0]["service"]==target),\n  "diagnosis_top1_correct":correct,"top1_correct":correct,"top3_correct":bool(localizable and target in top3),
   "mrr":1.0/target_rank if target_rank else 0.0,
   "abstained":winner is None,"false_attribution":bool(winner and not localizable),
   "confident_wrong_localizable":bool(winner and localizable and winner!=target),
@@ -109,12 +127,12 @@ def main():
   "evaluator":"direct generator records; truth used only after scoring for strict target mapping",
   "seed":SEED,"permutations_per_scenario":PERMUTATIONS,"scenario_count":len(g.CASES),
   "stream_count":n,"localizable_streams":len(local),
-  "top1_accuracy_on_localizable":sum(r["top1_correct"] for r in local)/len(local) if local else None,
+  "candidate_top1_accuracy_on_localizable":sum(r["candidate_top1_correct"] for r in local)/len(local) if local else None,\n  "diagnosis_top1_accuracy_on_localizable":sum(r["diagnosis_top1_correct"] for r in local)/len(local) if local else None,
   "top3_accuracy_on_localizable":sum(r["top3_correct"] for r in local)/len(local) if local else None,
   "mrr_on_localizable":sum(r["mrr"] for r in local)/len(local) if local else None,
   "coverage":sum(not r["abstained"] for r in results)/n if n else 0,
   "abstention_rate":sum(r["abstained"] for r in results)/n if n else 0,
-  "false_attribution_rate_nonlocalizable":sum(r["false_attribution"] for r in results)/n if n else 0,
+  "false_attribution_rate_nonlocalizable":sum(r["false_attribution"] for r in results if not r["localizable"])/sum(not r["localizable"] for r in results) if any(not r["localizable"] for r in results) else 0,
   "confident_wrong_localizable_rate":sum(r["confident_wrong_localizable"] for r in local)/len(local) if local else None,
   "scenario_summary":by_scenario,"per_scenario":results}
  Path(args.output).write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8")
