@@ -45,12 +45,17 @@ impl AdvisoryProvider for InvalidScore {
     }
 }
 
-struct SlowProvider;
-impl AdvisoryProvider for SlowProvider {
-    fn provider_id(&self) -> &'static str { "slow" }
+struct SlowThenFastProvider { calls: AtomicUsize }
+impl AdvisoryProvider for SlowThenFastProvider {
+    fn provider_id(&self) -> &'static str { "slow-then-fast" }
     fn model_version(&self) -> &'static str { "1" }
     fn score(&self, w: &AggregatedWindow) -> Result<AdvisoryScore, ProviderError> {
-        std::thread::sleep(Duration::from_millis(80));
+        // First invocation intentionally outlives the runner timeout; later
+        // invocations complete quickly to prove the runner recovers after the
+        // timed-out blocking worker releases its semaphore permit.
+        if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            std::thread::sleep(Duration::from_millis(80));
+        }
         ColdStartProvider.score(w)
     }
 }
@@ -85,7 +90,7 @@ async fn invalid_provider_score_is_rejected_and_runner_remains_usable() {
 
 #[tokio::test]
 async fn timeout_does_not_block_later_runner_calls_after_provider_finishes() {
-    let runner = ShadowRunner::new(true, Arc::new(SlowProvider), 1, Duration::from_millis(5)).unwrap();
+    let runner = ShadowRunner::new(true, Arc::new(SlowThenFastProvider { calls: AtomicUsize::new(0) }), 1, Duration::from_millis(5)).unwrap();
     assert_eq!(runner.score(window()).await, ShadowOutcome::TimedOut);
     // The bounded worker still owns its permit until the blocking provider exits.
     assert_eq!(runner.score(window()).await, ShadowOutcome::CapacitySkipped);
