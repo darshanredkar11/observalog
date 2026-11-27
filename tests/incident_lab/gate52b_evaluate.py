@@ -72,7 +72,7 @@ def main():
      if e.get(field) is not None and rng.random()<a.drop_optional_rate:e[field]=None
    for e in list(ev):
     if rng.random()<a.duplicate_rate:ev.append(dict(e))
-   rng.shuffle(ev);winner,ranked,canonical=score_case(ev);targets=service_targets(truth,canonical);n+=1 if False else 0
+   rng.shuffle(ev);winner,ranked,canonical=score_case(ev);targets=service_targets(truth,canonical);
    total+=1;abstentions+=winner is None
    expected_abstain=targets is None
    if expected_abstain:expected_abstain_cases+=1;expected_abstain_correct+=int(winner is None)
