@@ -28,19 +28,22 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          from collections import Counter
           from pathlib import Path
           root = Path("/tmp/mega-corpus-smoke")
-          raw = (root / "raw" / "corpus.jsonl").read_text().splitlines()
+          raw_lines = (root / "raw" / "corpus.jsonl").read_text().splitlines()
           truth = json.loads((root / "ground-truth" / "labels.json").read_text())
-          records = [json.loads(line) for line in raw]
+          records = [json.loads(line) for line in raw_lines]
           assert len(records) == 644, f"expected 644 records including duplicates, got {len(records)}"
           assert len(truth["labels"]) == 620
           assert len(truth["functional_classes"]) == 31
           assert truth["duplicates"] == 24
-          assert set(r["scenario"] for r in records) == set(truth["functional_classes"])
-          assert all("expected_class" not in r and "primary_cause" not in r for r in records), "truth leaked into raw records"
-          assert sum(1 for r in records if r.get("collector_duplicate")) == 24
-          print("mega corpus verified: 620 base + 24 duplicates; 31 classes; evaluator truth isolated")
+          assert all("scenario" not in r and "expected_class" not in r and "primary_cause" not in r for r in records), "truth leaked into raw records"
+          ids = Counter(r["event_id"] for r in records)
+          assert sum(count - 1 for count in ids.values() if count > 1) == 24, "duplicate count mismatch"
+          assert set(ids) == {label["event_id"] for label in truth["labels"]}, "raw/truth event IDs don't match"
+          assert all(r["event_id"] in ids for r in truth["labels"])
+          print("mega corpus verified: 620 base + 24 exact duplicates; 31 classes; evaluator truth isolated")
           PY
       - name: Generate full 25k corpus bundle
         run: python tests/incident_lab/mega_corpus.py --count 25000 --seed 20261126 --duplicate-rate 0.04 --output /tmp/observalog-full-corpus
@@ -78,15 +81,11 @@ jobs:
           raw = sorted((root / "raw").glob("*.log"))
           truth = sorted((root / "ground-truth").glob("*.json"))
           manifest = json.loads((root / "manifest.json").read_text())
-          assert len(raw) == 66, f"expected 63 raw streams, got {len(raw)}"
-          assert len(truth) == 66, f"expected 63 truth files, got {len(truth)}"
+          assert len(raw) == 66, f"expected 66 raw streams, got {len(raw)}"
+          assert len(truth) == 66, f"expected 66 truth files, got {len(truth)}"
           assert len(manifest) == 66
           assert all("primary_cause" not in p.read_text() for p in raw), "ground truth leaked into raw logs"
           poison = [p for p in manifest if p["scenario"] == "poison-record-isolation"]
           assert len(poison) == 3 and all(p["malformed_records"] == 1 for p in poison)
           print("verified 22 scenarios × 3 arrival permutations; truth remains outside raw/")
           PY
-
-# Generator validation runs only on the incident corpus paths.
-
-# Re-run after correcting the clock-skew scenario fixture.
