@@ -1,125 +1,89 @@
 #!/usr/bin/env python3
-"""Gate 5.2-B evaluator: replay 22 generated cases × arrival permutations against deterministic graph ranking.
-This evaluates the prototype heuristic against generator truth, not end-to-end production ingestion.
-"""
-import argparse, importlib.util, json, random
+"""Gate 5.2-B report evaluator with explicit service-target and abstention semantics."""
+import argparse, importlib.util, json, random, re
 from pathlib import Path
 
 def load_generator(path):
-    spec=importlib.util.spec_from_file_location("incident_generator",path)
-    g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g); return g
+ spec=importlib.util.spec_from_file_location("incident_generator",path); g=importlib.util.module_from_spec(spec); spec.loader.exec_module(g); return g
+
+def is_failure(e):
+ return e.get("outcome")=="failure" or str(e.get("level","")).upper() in ("ERROR","FATAL") or bool(e.get("error_code"))
 
 def score_case(events):
-    # Mirror graph_diagnosis.rs exactly for prototype evaluation.
-    by_span={}
-    dedup={}
-    for e in events:
-        dedup[e.get("event_id")] = e
-    events=list(dedup.values())
-    scores={}
-    for e in events:
-        s=e.get("service","unknown")
-        c=scores.setdefault(s,{"service":s,"score":0.0,"direct_failures":0,"upstream_failure_links":0,
-            "downstream_failure_links":0,"healthy_peer_events":0,"reasons":[]})
-        failed=e.get("outcome")=="failure" or str(e.get("level","")).upper() in ("ERROR","FATAL"
-        ) or bool(e.get("error_code"))
-        e["_failed"]=failed
-        if e.get("span_id"): by_span.setdefault(e["span_id"],[]).append(e)
-        if failed:
-            c["direct_failures"]+=1; c["score"]+=1
-            c["reasons"].append(f"direct failure event {e.get('event_id')}")
-            if e.get("error_code") or e.get("dependency"):
-                c["score"]+=.5
-        else: c["healthy_peer_events"]+=1
-    # Resolve explicit parent-span relations only. Parent-child evidence must be in the event records.
-    span_events={span:items for span,items in by_span.items()}
-    for child in events:
-        parent_id=child.get("parent_span_id")
-        if not parent_id or not child["_failed"]: continue
-        parents=span_events.get(parent_id,[])
-        for parent in parents:
-            if parent.get("service")==child.get("service"): continue
-            if parent.get("_failed"):
-                p=scores[parent["service"]]; p["upstream_failure_links"]+=1; p["score"]+=1.5
-                p["reasons"].append("explicit failed parent span")
-                c=scores[child["service"]]; c["downstream_failure_links"]+=1; c["score"]-=.75
-                c["reasons"].append("failed child has explicit failed parent")
-                # Causal direction remains structural; timestamp is only a tie/support check.
-                if parent.get("offset_ms",0)<=child.get("offset_ms",0): p["score"]+=.25
-    # Same-service/version healthy observations are bounded contrast.
-    for c in scores.values():
-        versions={e.get("version") for e in events if e["service"]==c["service"] and e.get("version")}
-        if versions:
-            healthy=sum(1 for e in events if e["service"]==c["service"] and e.get("version") in versions and not e["_failed"])
-            c["healthy_peer_events"]=healthy
-            penalty=min(healthy*.25,1.0); c["score"]-=penalty
-            if penalty: c["reasons"].append(f"{healthy} healthy same-service/version controls")
-    ranked=sorted(scores.values(),key=lambda x:(-x["score"],x["service"]))
-    winner=ranked[0]["service"] if ranked and ranked[0]["score"]>=2 and (ranked[0]["direct_failures"]>0 or ranked[0]["upstream_failure_links"]>0) else None
-    return winner, ranked, events
+ # deduplicate repeated event IDs (collector duplicate resilience)
+ dedup={e.get("event_id"):e for e in events}; events=list(dedup.values())
+ by_span={}
+ scores={}
+ for e in events:
+  s=e.get("service","unknown"); c=scores.setdefault(s,{"service":s,"score":0.0,"direct_failures":0,"upstream_failure_links":0,"downstream_failure_links":0,"healthy_peer_events":0,"reasons":[]})
+  e["_failed"]=is_failure(e)
+  if e.get("span_id"): by_span.setdefault(e["span_id"],[]).append(e)
+  if e["_failed"]:
+   c["direct_failures"]+=1;c["score"]+=1;c["reasons"].append("direct failure")
+   if e.get("error_code") or e.get("dependency"):c["score"]+=.5;c["reasons"].append("error/dependency detail")
+  else:c["healthy_peer_events"]+=1
+ for child in events:
+  pid=child.get("parent_span_id")
+  if not pid or not child["_failed"]:continue
+  for parent in by_span.get(pid,[]):
+   if parent.get("service")==child.get("service") or not parent["_failed"]:continue
+   p=scores[parent["service"]];p["upstream_failure_links"]+=1;p["score"]+=1.5;p["reasons"].append("failed explicit parent span")
+   c=scores[child["service"]];c["downstream_failure_links"]+=1;c["score"]-=.75;c["reasons"].append("failed child with explicit failed parent")
+   if parent.get("offset_ms",0)<=child.get("offset_ms",0):p["score"]+=.25
+ for c in scores.values():
+  versions={e.get("version") for e in events if e["service"]==c["service"] and e.get("version")}
+  if versions:
+   healthy=sum(1 for e in events if e["service"]==c["service"] and e.get("version") in versions and not e["_failed"])
+   c["healthy_peer_events"]=healthy;pen=min(healthy*.25,1.0);c["score"]-=pen
+   if pen:c["reasons"].append(f"{healthy} healthy same-service/version controls")
+ ranked=sorted(scores.values(),key=lambda x:(-x["score"],x["service"]))
+ winner=ranked[0]["service"] if ranked and ranked[0]["score"]>=2 and (ranked[0]["direct_failures"]>0 or ranked[0]["upstream_failure_links"]>0) else None
+ return winner,ranked,events
 
-def truth_match(candidate, truth, events):
-    if not candidate: return False
-    target=str(truth.get("primary_entity","")).lower().strip()
-    if candidate.lower()==target or candidate.lower() in target: return True
-    # Ground-truth entity labels sometimes refer to an instance, version, dependency host,
-    # tenant/flag, DB resource, or span-relationship concept rather than service name.
-    related=[]
-    for e in events:
-        if candidate!=e.get("service"): continue
-        related += [str(e.get("instance") or ""),str(e.get("version") or "")]
-        related += [str(v) for v in (e.get("attrs") or {}).values()]
-    return any(target and target in x.lower() for x in related if x)
+def service_targets(truth, events):
+ # Only service targets explicitly present as service name/version/instance in truth.
+ # Composite labels and external entities are not coerced into a service root.
+ if truth.get("category") in ("multiple_independent_events","identity_collision"): return None
+ label=str(truth.get("primary_entity","")).strip().lower()
+ services={e.get("service") for e in events if e.get("service")}
+ matches=set()
+ for service in services:
+  s=str(service).lower()
+  if re.search(r"(?<![a-z0-9_-])"+re.escape(s)+r"(?![a-z0-9_-])",label):
+   matches.add(service)
+  for e in events:
+   if e.get("service")!=service:continue
+   for value in (e.get("instance"),e.get("version")):
+    if value and str(value).lower()==label:matches.add(service)
+ # explicit service@version form
+ for service in services:
+  if label.startswith(str(service).lower()+"@"):matches.add(service)
+ return matches if len(matches)==1 else None
 
 def main():
-    p=argparse.ArgumentParser()
-    p.add_argument("--generator",default="tests/incident_lab/generate.py")
-    p.add_argument("--output",default="gate52b-evaluation.json")
-    p.add_argument("--permutations",type=int,default=3)
-    p.add_argument("--seed",type=int,default=52026)
-    p.add_argument("--duplicate-rate",type=float,default=.10)
-    p.add_argument("--drop-optional-rate",type=float,default=.15)
-    a=p.parse_args()
-    g=load_generator(a.generator)
-    rows=[]; top1=top3=correct_nonabstain=false_attribution=abstentions=0; n=0
-    for name,factory in sorted(g.CASES.items()):
-        base,truth=factory()
-        for perm in range(a.permutations):
-            rng=random.Random(a.seed+perm*1009)
-            records=[dict(e) for e in base]
-            for e in records:
-                for field in g.OPTIONAL_FIELDS:
-                    if e.get(field) is not None and rng.random()<a.drop_optional_rate: e[field]=None
-            for e in list(records):
-                if rng.random()<a.duplicate_rate: records.append(dict(e))
-            rng.shuffle(records) # arrival-order stress every permutation
-            winner,ranked,canonical=score_case(records)
-            n+=1
-            matched=truth_match(winner,truth,canonical)
-            if winner is None: abstentions+=1
-            else:
-                correct_nonabstain+=int(matched)
-                false_attribution+=int(not matched)
-                top1+=int(matched)
-            # Top-3 evaluated only where root service/instance/dependency can be grounded in service candidates.
-            matches=[c["service"] for c in ranked[:3] if truth_match(c["service"],truth,canonical)]
-            top3+=int(bool(matches))
-            rows.append({"scenario":name,"permutation":perm,"primary_entity":truth.get("primary_entity"),
-                "winner":winner,"top3":[c["service"] for c in ranked[:3]],"match":matched if winner else None,
-                "abstained":winner is None,"ranked":ranked})
-    summary={"gate":"5.2-B","evaluator":"prototype heuristic mirrored in Python; synthetic truth matching heuristic",
-        "status":"REPORT_ONLY","scenario_count":len(g.CASES),"permutations_per_scenario":a.permutations,
-        "total_cases":n,"top1_correct":top1,"top1_accuracy_pct":round(100*top1/n,2) if n else 0,
-        "top3_correct":top3,"top3_accuracy_pct":round(100*top3/n,2) if n else 0,
-        "false_attributions":false_attribution,"false_attribution_rate_pct":round(100*false_attribution/n,2) if n else 0,
-        "abstentions":abstentions,"abstention_rate_pct":round(100*abstentions/n,2) if n else 0,
-        "nonabstaining_cases":n-abstentions,"correct_nonabstain":correct_nonabstain,
-        "limitations":["heuristic truth mapping for primary_entity labels","evaluates prototype only; no ingestion/runtime integration",
-            "scenarios without service-level truth may be inherently non-service-root-cause targets",
-            "prototype scoring currently uses simplified canonical event model"],
-        "cases":rows}
-    Path(a.output).write_text(json.dumps(summary,indent=2),encoding="utf-8")
-    print(json.dumps({k:v for k,v in summary.items() if k!="cases"},indent=2))
-    print("\nScenario results:")
-    for r in rows: print(f'{r["scenario"]} p{r["permutation"]}: winner={r["winner"] or "ABSTAIN"} top3={r["top3"]} match={r["match"]}')
-if __name__=="__main__": main()
+ p=argparse.ArgumentParser();p.add_argument("--generator",default="tests/incident_lab/generate.py");p.add_argument("--output",default="gate52b-evaluation.json");p.add_argument("--permutations",type=int,default=3);p.add_argument("--seed",type=int,default=52026);p.add_argument("--duplicate-rate",type=float,default=.10);p.add_argument("--drop-optional-rate",type=float,default=.15);a=p.parse_args()
+ g=load_generator(a.generator);rows=[];total=top1_correct=top3_correct=abstentions=false_attribution=expected_abstain_cases=expected_abstain_correct=0;service_labeled=service_cases_abstain=service_cases=0
+ for name,factory in sorted(g.CASES.items()):
+  base,truth=factory()
+  for perm in range(a.permutations):
+   rng=random.Random(a.seed+perm*1009);ev=[dict(x) for x in base]
+   for e in ev:
+    for field in g.OPTIONAL_FIELDS:
+     if e.get(field) is not None and rng.random()<a.drop_optional_rate:e[field]=None
+   for e in list(ev):
+    if rng.random()<a.duplicate_rate:ev.append(dict(e))
+   rng.shuffle(ev);winner,ranked,canonical=score_case(ev);targets=service_targets(truth,canonical);n+=1 if False else 0
+   total+=1;abstentions+=winner is None
+   expected_abstain=targets is None
+   if expected_abstain:expected_abstain_cases+=1;expected_abstain_correct+=int(winner is None)
+   if targets is not None:
+    service_cases+=1;service_cases_abstain+=int(winner is None)
+    top1_correct+=int(winner in targets)
+    top3_correct+=int(any(c["service"] in targets for c in ranked[:3]))
+    if winner is not None and winner not in targets:false_attribution+=1
+   rows.append({"scenario":name,"permutation":perm,"primary_entity":truth.get("primary_entity"),"service_target":sorted(targets) if targets is not None else None,"winner":winner,"top3":[c["service"] for c in ranked[:3]],"top1_correct":bool(winner in targets) if targets is not None else None,"top3_correct":bool(any(c["service"] in targets for c in ranked[:3])) if targets is not None else None,"expected_abstain":expected_abstain,"abstained":winner is None,"ranked":ranked})
+ summary={"gate":"5.2-B","status":"REPORT_ONLY","evaluator":"Python mirror of prototype ranking; explicit service-level truth mapping; non-service/composite labels excluded from service accuracy","scenario_count":len(g.CASES),"permutations_per_scenario":a.permutations,"total_cases":total,"service_labeled_cases":service_cases,"top1_correct":top1_correct,"top1_accuracy_pct":round(100*top1_correct/service_cases,2) if service_cases else None,"top3_correct":top3_correct,"top3_accuracy_pct":round(100*top3_correct/service_cases,2) if service_cases else None,"false_attributions":false_attribution,"false_attribution_rate_pct":round(100*false_attribution/service_cases,2) if service_cases else None,"abstentions":abstentions,"abstention_rate_pct":round(100*abstentions/total,2) if total else 0,"expected_abstain_cases":expected_abstain_cases,"correct_expected_abstentions":expected_abstain_correct,"expected_abstention_accuracy_pct":round(100*expected_abstain_correct/expected_abstain_cases,2) if expected_abstain_cases else None,"service_cases_abstained":service_cases_abstain,"limitations":["prototype-only evaluation; not runtime ingestion","truth primary_entity sometimes names an external dependency, business object, host, or composite incident; these are not treated as service targets","Python mirror must remain aligned with Rust implementation","score is not probability/calibrated confidence"],"cases":rows}
+ Path(a.output).write_text(json.dumps(summary,indent=2),encoding="utf-8");print(json.dumps({k:v for k,v in summary.items() if k!="cases"},indent=2))
+ print("\nPer-scenario:")
+ for r in rows:print(f'{r["scenario"]} p{r["permutation"]}: winner={r["winner"] or "ABSTAIN"} target={r["service_target"]} top3={r["top3"]} top3_correct={r["top3_correct"]}')
+if __name__=="__main__":main()
