@@ -1,0 +1,31 @@
+name: ML Algorithm Selection - Deterministic Baseline
+on:
+  push:
+    branches:
+      - lite/chaos-gate-3-5
+    paths:
+      - 'tests/incident_lab/**'
+      - '.github/workflows/ml-algorithm-baseline.yml'
+  workflow_dispatch:
+jobs:
+  deterministic-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate seeded evaluation corpus
+        run: python3 tests/incident_lab/mega_corpus.py --count 25000 --seed 20261127 --duplicate-rate 0.04 --output /tmp/observalog-baseline
+      - name: Evaluate deterministic baseline (raw only during scoring)
+        run: |
+          python3 tests/incident_lab/deterministic_baseline.py \
+            --raw /tmp/observalog-baseline/raw/corpus.jsonl \
+            --labels /tmp/observalog-baseline/ground-truth/labels.json \
+            --output /tmp/observalog-baseline/baseline-report.json
+      - name: Upload evaluator report
+        uses: actions/upload-artifact@v4
+        with:
+          name: deterministic-baseline-report
+          path: /tmp/observalog-baseline/baseline-report.json
+          if-no-files-found: error
