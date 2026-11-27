@@ -27,6 +27,9 @@ pub fn router(pool: PgPool, ingest_token: String) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/ingest/raw", post(ingest_raw))
+        .route("/api/dashboard/summary", get(dashboard_summary))
+        .route("/api/logs", get(dashboard_logs))
+        .route("/api/findings", get(dashboard_findings))
         .with_state(state)
         .layer(DefaultBodyLimit::max(16 * 1024 * 1024))
 }
@@ -141,6 +144,85 @@ async fn ingest_raw(
         StatusCode::ACCEPTED,
         Json(IngestResponse { accepted, duplicates, rejected: 0 }),
     ))
+}
+
+fn authorized(headers: &HeaderMap, token: &[u8]) -> bool {
+    let supplied = headers.get("x-observalog-token").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    constant_time_token_eq(supplied.as_bytes(), token)
+}
+
+async fn dashboard_summary(State(state): State<IngestState>, headers: HeaderMap) -> Result<Json<Value>, (StatusCode, String)> {
+    if !authorized(&headers, state.token.as_bytes()) {
+        return Err((StatusCode::UNAUTHORIZED, "missing or invalid dashboard token".into()));
+    }
+    let pool = &state.pool;
+    let event_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lite_event_index WHERE observed_at >= now() - interval '60 minutes'")
+        .fetch_one(pool).await.map_err(internal_error)?;
+    let error_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lite_event_index WHERE observed_at >= now() - interval '60 minutes' AND severity IN ('ERROR','FATAL')")
+        .fetch_one(pool).await.map_err(internal_error)?;
+    let service_count: i64 = sqlx::query_scalar("SELECT COUNT(DISTINCT service) FROM lite_event_index WHERE observed_at >= now() - interval '60 minutes' AND service IS NOT NULL")
+        .fetch_one(pool).await.map_err(internal_error)?;
+    let pending: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lite_gate_work WHERE state='pending'").fetch_one(pool).await.map_err(internal_error)?;
+    let leased: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lite_gate_work WHERE state='leased'").fetch_one(pool).await.map_err(internal_error)?;
+    let dead: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lite_gate_work WHERE state='dead'").fetch_one(pool).await.map_err(internal_error)?;
+    let latest: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar("SELECT MAX(observed_at) FROM lite_event_index").fetch_one(pool).await.map_err(internal_error)?;
+    let services = sqlx::query("SELECT service, COUNT(*) AS events, COUNT(*) FILTER (WHERE severity IN ('ERROR','FATAL')) AS errors, MAX(observed_at) AS last_seen FROM lite_event_index WHERE observed_at >= now() - interval '60 minutes' AND service IS NOT NULL GROUP BY service ORDER BY errors DESC, events DESC")
+        .fetch_all(pool).await.map_err(internal_error)?;
+    let service_json: Vec<Value> = services.iter().map(|r| json!({
+        "service": r.try_get::<String,_>("service").unwrap_or_default(),
+        "events": r.try_get::<i64,_>("events").unwrap_or(0),
+        "errors": r.try_get::<i64,_>("errors").unwrap_or(0),
+        "last_seen": r.try_get::<Option<chrono::DateTime<chrono::Utc>>,_>("last_seen").ok().flatten()
+    })).collect();
+    Ok(Json(json!({"window_minutes":60,"event_count":event_count,"error_count":error_count,"service_count":service_count,"queue":{"pending":pending,"leased":leased,"dead":dead},"last_event_at":latest,"services":service_json})))
+}
+
+async fn dashboard_logs(State(state): State<IngestState>, headers: HeaderMap, axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String,String>>) -> Result<Json<Value>, (StatusCode, String)> {
+    if !authorized(&headers, state.token.as_bytes()) {
+        return Err((StatusCode::UNAUTHORIZED, "missing or invalid dashboard token".into()));
+    }
+    let limit = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(50).clamp(1,100);
+    let rows = sqlx::query("SELECT i.id, i.event_ts, i.observed_at, i.service, i.instance, i.severity, i.error_code, i.outcome, i.trace_id, i.request_id, i.quality_flags, p.canonical->>'message' AS message FROM lite_event_index i LEFT JOIN lite_event_payload p ON p.id=i.id ORDER BY i.observed_at DESC LIMIT $1")
+        .bind(limit).fetch_all(&state.pool).await.map_err(internal_error)?;
+    let events: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.try_get::<i64,_>("id").unwrap_or(0),
+        "event_ts": r.try_get::<chrono::DateTime<chrono::Utc>,_>("event_ts").ok(),
+        "observed_at": r.try_get::<chrono::DateTime<chrono::Utc>,_>("observed_at").ok(),
+        "service": r.try_get::<Option<String>,_>("service").ok().flatten(),
+        "instance": r.try_get::<Option<String>,_>("instance").ok().flatten(),
+        "severity": r.try_get::<Option<String>,_>("severity").ok().flatten(),
+        "error_code": r.try_get::<Option<String>,_>("error_code").ok().flatten(),
+        "outcome": r.try_get::<Option<String>,_>("outcome").ok().flatten(),
+        "trace_id": r.try_get::<Option<String>,_>("trace_id").ok().flatten(),
+        "request_id": r.try_get::<Option<String>,_>("request_id").ok().flatten(),
+        "message": r.try_get::<Option<String>,_>("message").ok().flatten(),
+        "quality_flags": r.try_get::<Value,_>("quality_flags").unwrap_or(json!([]))
+    })).collect();
+    Ok(Json(json!({"events":events})))
+}
+
+async fn dashboard_findings(State(state): State<IngestState>, headers: HeaderMap) -> Result<Json<Value>, (StatusCode, String)> {
+    if !authorized(&headers, state.token.as_bytes()) {
+        return Err((StatusCode::UNAUTHORIZED, "missing or invalid dashboard token".into()));
+    }
+    let rows = sqlx::query("SELECT id, category, title, likely_cause, confidence, primary_event_id, evidence_event_ids, affected_services, alternatives, evidence, first_seen, last_seen, occurrence_count FROM lite_findings ORDER BY last_seen DESC LIMIT 50")
+        .fetch_all(&state.pool).await.map_err(internal_error)?;
+    let findings: Vec<Value> = rows.iter().map(|r| json!({
+        "id": r.try_get::<i64,_>("id").unwrap_or(0),
+        "category": r.try_get::<String,_>("category").unwrap_or_default(),
+        "title": r.try_get::<String,_>("title").unwrap_or_default(),
+        "likely_cause": r.try_get::<String,_>("likely_cause").unwrap_or_default(),
+        "confidence": r.try_get::<f64,_>("confidence").unwrap_or(0.0),
+        "primary_event_id": r.try_get::<i64,_>("primary_event_id").unwrap_or(0),
+        "evidence_event_ids": r.try_get::<Value,_>("evidence_event_ids").unwrap_or(json!([])),
+        "affected_services": r.try_get::<Value,_>("affected_services").unwrap_or(json!([])),
+        "alternatives": r.try_get::<Value,_>("alternatives").unwrap_or(json!([])),
+        "evidence": r.try_get::<Value,_>("evidence").unwrap_or(json!({})),
+        "first_seen": r.try_get::<chrono::DateTime<chrono::Utc>,_>("first_seen").ok(),
+        "last_seen": r.try_get::<chrono::DateTime<chrono::Utc>,_>("last_seen").ok(),
+        "occurrence_count": r.try_get::<i64,_>("occurrence_count").unwrap_or(1)
+    })).collect();
+    Ok(Json(json!({"findings":findings})))
 }
 
 fn decode_body(body: &[u8], source_header: &str) -> Vec<(String, Value, Option<String>)> {
