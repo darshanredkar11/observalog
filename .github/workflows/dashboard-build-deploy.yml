@@ -1,0 +1,52 @@
+name: ObservaLog Lite Dashboard Build, E2E & Pages Deploy
+on:
+  push:
+    branches: [lite/chaos-gate-3-5]
+    paths:
+      - 'docs/lite/dashboard/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: lite-pages
+  cancel-in-progress: true
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs/lite/dashboard/package-lock.json
+      - name: Install dashboard dependencies
+        working-directory: docs/lite/dashboard
+        run: npm install
+      - name: Install real Cult UI Halo Button registry component
+        working-directory: docs/lite/dashboard
+        run: npx shadcn@latest add @cult-ui/halo-button --overwrite --yes
+      - name: Production build
+        working-directory: docs/lite/dashboard
+        run: npm run build
+      - name: Install Playwright Chromium
+        working-directory: docs/lite/dashboard
+        run: npx playwright install --with-deps chromium
+      - name: Dashboard browser E2E
+        working-directory: docs/lite/dashboard
+        run: npx playwright test
+      - uses: actions/configure-pages@v5
+      - name: Upload built dashboard
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/lite/dashboard/dist/
+      - name: Deploy dashboard to Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
