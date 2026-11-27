@@ -50,7 +50,21 @@ Evaluated 22 scenarios × 3 deterministic permutations (66 streams), seed 202611
 
 **Interpretation:** The top-3 candidate ranking is promising, but Top-1 and coverage are weak. Most streams abstain. False winners are concentrated in provider retry storm, tenant feature-flag drift, and unrelated concurrent failures (3 permutations each). We must fix those false attributions before adding sequence ML. Metrics are synthetic-corpus only and are not product claims.
 
-The truth mapper was tightened to reject composite and external-dependency labels as service targets. Healthy and multi-incident scenarios remain abstention targets. The Python scorer remains separate from the Rust prototype and must be kept aligned.
+## Post-fix safety rerun
+
+After tie-abstention and strict truth-mapping fixes, a later CI report (66 streams) measured:
+- Candidate Top-1 (localizable): 66.7%
+- Accepted diagnosis Top-1: 33.3%
+- Top-3: 100%
+- MRR: 0.806
+- Coverage: 9.1% (6/66)
+- Abstention: 90.9%
+- False attribution on non-localizable: 0%
+- Confident wrong among localizable: 0%
+
+The earlier baseline had 22.7% coverage and 13.6% false attribution on non-localizable streams. The safety rerun eliminated false attributions but cut coverage sharply. **This is not a satisfactory product trade-off yet.** It is an interim safe mode, not an exit condition.
+
+The truth mapper now rejects composite, external-dependency, and multi-incident labels as service targets. Healthy cases remain abstention targets. The Python scorer is separate from the Rust prototype and must be kept aligned.
 
 ## Next
 - Fix false attributions on non-localizable/multi-incident cases.
