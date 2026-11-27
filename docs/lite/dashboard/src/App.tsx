@@ -17,7 +17,7 @@ export default function App(){
  useEffect(()=>{if(!connected)return;refresh();const t=setInterval(refresh,5000);return()=>clearInterval(t)},[connected,refresh]);
  useEffect(()=>{if(!active||demoMode||!connected||!active.evidence_event_ids?.length){setEvents([]);return;}request('/api/logs?ids='+encodeURIComponent(active.evidence_event_ids.join(','))).then(d=>setEvents(d.events||[])).catch(()=>setEvents([]))},[active,request,connected,demoMode]);
  const filtered=useMemo(()=>findings.filter(f=>(f.title||f.category||'').toLowerCase().includes(filter.toLowerCase())),[findings,filter]);
- const nodes:Node[]=useMemo(()=>{if(!active?.affected_services?.length)return[];return active.affected_services.slice(0,12).map((s,i)=>({id:String(s),position:{x:140+(i%3)*210,y:90+Math.floor(i/3)*135},data:{label:String(s)},type:'default',style:{background:i===0?'#351c21':'#151a23',color:'#e8edf4',border:i===0?'1px solid #f66':'1px solid #2b3443',borderRadius:12,padding:'14px 18px',fontSize:12,fontWeight:600,boxShadow:i===0?'0 0 28px #ff5d6822':'none'}}))},[active]);
+ const nodes:Node[]=useMemo(()=>{if(!active?.affected_services?.length)return[];return active.affected_services.slice(0,12).map((s,i)=>({id:String(s),position:{x:140+(i%3)*210,y:90+Math.floor(i/3)*135},data:{label:String(s)},type:'default',style:{background:i===0?'#fff7f7':'#ffffff',color:'#263548',border:i===0?'1px solid #d98383':'1px solid #dbe3ec',borderRadius:10,padding:'14px 18px',fontSize:12,fontWeight:600,boxShadow:i===0?'0 2px 8px #c25a5a12':'0 1px 4px #23364a08'}}))},[active]);
  // Intentionally no causal edges: the current findings API exposes affected services, not validated dependency relationships.
  const edges:Edge[]=[];
  const pages=Math.max(1,Math.ceil(total/size));
