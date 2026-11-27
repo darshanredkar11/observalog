@@ -1,0 +1,28 @@
+name: Gate 5.2-B Incident Corpus Evaluation
+on:
+  push:
+    branches: [lite/chaos-gate-3-5]
+    paths:
+      - tests/incident_lab/gate52_b_evaluator.py
+      - tests/incident_lab/generate.py
+      - .github/workflows/gate52-b-corpus-evaluation.yml
+  pull_request:
+    branches: [lite/chaos-gate-3-5]
+  workflow_dispatch:
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile evaluator and generator
+        run: python -m py_compile tests/incident_lab/gate52_b_evaluator.py tests/incident_lab/generate.py
+      - name: Evaluate 22 scenarios across randomized permutations
+        run: python tests/incident_lab/gate52_b_evaluator.py --output gate52-b-evaluation.json
+      - name: Upload evaluation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate52-b-corpus-evaluation
+          path: gate52-b-evaluation.json
