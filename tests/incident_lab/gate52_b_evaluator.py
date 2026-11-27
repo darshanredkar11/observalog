@@ -42,21 +42,20 @@ def score(events):
   if not tied: winner=candidates[0]["service"]
  return candidates,winner
 
-def map_target(primary_entity, events):
- """Evaluator-only mapping, conservative: exact service/version/instance tokens only."""
- if not primary_entity or primary_entity.lower() in {"no incident","none"}: return None
- text=primary_entity.lower()
- services={e["service"] for e in events}
+def map_target(primary_entity, category, events):
+ """Conservative target mapping: service/version or exact instance.
+ Healthy and multi-incident cases are not single-root targets."""
+ if category in {"healthy", "multiple_incidents", "multiple_independent_events"} or not primary_entity:
+  return None
+ text=primary_entity.lower().strip()
  matches=set()
  for e in events:
-  s=e["service"]
-  # service token or explicit service@version target
-  if re.search(r"(?<![a-z0-9_-])"+re.escape(s.lower())+r"(?![a-z0-9_-])",text) or (s.lower()+"@") in text:
-   matches.add(s)
-  # exact instance token (e.g. identity-03) maps to service
+  s=e["service"].lower()
+  if text==s or text.startswith(s+"@") or text.startswith(s+"/"):
+   matches.add(e["service"])
   inst=e.get("instance")
-  if inst and re.search(r"(?<![a-z0-9_-])"+re.escape(inst.lower())+r"(?![a-z0-9_-])",text):
-   matches.add(s)
+  if inst and text==inst.lower():
+   matches.add(e["service"])
  return next(iter(matches)) if len(matches)==1 else None
 
 def run_case(name,factory,seed,permutation):
@@ -75,7 +74,7 @@ def run_case(name,factory,seed,permutation):
  unique={}
  for e in mutated:unique.setdefault(e["event_id"],e)
  ranked,winner=score(list(unique.values()))
- target=map_target(truth.get("primary_entity"),events)
+ target=map_target(truth.get('primary_entity'),truth.get('category'),events)
  top3=[x["service"] for x in ranked[:3]]
  target_rank=next((i+1 for i,s in enumerate(top3) if s==target),None) if target else None
  localizable=target is not None
