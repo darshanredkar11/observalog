@@ -1,13 +1,14 @@
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderName, Method, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
+use tower_http::cors::{Any, CorsLayer};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -31,6 +32,7 @@ pub fn router(pool: PgPool, ingest_token: String) -> Router {
         .route("/api/logs", get(dashboard_logs))
         .route("/api/findings", get(dashboard_findings))
         .with_state(state)
+        .layer(CorsLayer::new().allow_origin(Any).allow_methods([Method::GET, Method::POST]).allow_headers([HeaderName::from_static("x-observalog-token")]))
         .layer(DefaultBodyLimit::max(16 * 1024 * 1024))
 }
 
