@@ -1,0 +1,43 @@
+name: Gate 5.2 Live Dashboard E2E
+on:
+  push:
+    branches: [lite/chaos-gate-3-5]
+    paths:
+      - observalog-brain/src/lite/http.rs
+      - observalog-brain/Cargo.toml
+      - docker-compose.yml
+      - tests/incident_lab/gate52_live_dashboard_e2e.py
+      - .github/workflows/gate52-live-dashboard-e2e.yml
+  pull_request:
+    branches: [lite/chaos-gate-3-5]
+  workflow_dispatch:
+
+jobs:
+  live-dashboard-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set CI test credentials
+        run: |
+          echo "POSTGRES_PASSWORD=gate52-ci-db-password" >> "$GITHUB_ENV"
+          echo "LITE_INGEST_TOKEN=gate52-live-e2e-token-0123456789" >> "$GITHUB_ENV"
+      - name: Start full Lite stack
+        run: docker compose up --build -d
+      - name: Wait for Brain health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:4000/health; then exit 0; fi
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs brain
+          exit 1
+      - name: Run authenticated 10-service dashboard smoke
+        run: python3 tests/incident_lab/gate52_live_dashboard_e2e.py
+      - name: Collect stack diagnostics
+        if: always()
+        run: docker compose ps && docker compose logs --tail=150 brain
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v
