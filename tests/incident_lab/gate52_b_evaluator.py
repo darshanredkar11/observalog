@@ -99,7 +99,8 @@ def run_case(name,factory,seed,permutation):
  correct=bool(localizable and winner==target)
  return {"scenario":name,"permutation":permutation,"target_service":target,
   "winner":winner,"ranked_candidates":ranked[:5],"localizable":localizable,
-  "candidate_top1_correct":bool(localizable and ranked and ranked[0]["service"]==target),\n  "diagnosis_top1_correct":correct,"top1_correct":correct,"top3_correct":bool(localizable and target in top3),
+  "candidate_top1_correct":bool(localizable and ranked and ranked[0]["service"]==target),
+  "diagnosis_top1_correct":correct,"top1_correct":correct,"top3_correct":bool(localizable and target in top3),
   "mrr":1.0/target_rank if target_rank else 0.0,
   "abstained":winner is None,"false_attribution":bool(winner and not localizable),
   "confident_wrong_localizable":bool(winner and localizable and winner!=target),
@@ -127,7 +128,8 @@ def main():
   "evaluator":"direct generator records; truth used only after scoring for strict target mapping",
   "seed":SEED,"permutations_per_scenario":PERMUTATIONS,"scenario_count":len(g.CASES),
   "stream_count":n,"localizable_streams":len(local),
-  "candidate_top1_accuracy_on_localizable":sum(r["candidate_top1_correct"] for r in local)/len(local) if local else None,\n  "diagnosis_top1_accuracy_on_localizable":sum(r["diagnosis_top1_correct"] for r in local)/len(local) if local else None,
+  "candidate_top1_accuracy_on_localizable":sum(r["candidate_top1_correct"] for r in local)/len(local) if local else None,
+  "diagnosis_top1_accuracy_on_localizable":sum(r["diagnosis_top1_correct"] for r in local)/len(local) if local else None,
   "top3_accuracy_on_localizable":sum(r["top3_correct"] for r in local)/len(local) if local else None,
   "mrr_on_localizable":sum(r["mrr"] for r in local)/len(local) if local else None,
   "coverage":sum(not r["abstained"] for r in results)/n if n else 0,
@@ -135,7 +137,8 @@ def main():
   "false_attribution_rate_nonlocalizable":sum(r["false_attribution"] for r in results if not r["localizable"])/sum(not r["localizable"] for r in results) if any(not r["localizable"] for r in results) else 0,
   "confident_wrong_localizable_rate":sum(r["confident_wrong_localizable"] for r in local)/len(local) if local else None,
   "scenario_summary":by_scenario,"per_scenario":results}
- Path(args.output).write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8")
+ Path(args.output).write_text(json.dumps(report,indent=2)+"
+",encoding="utf-8")
  print(json.dumps({k:v for k,v in report.items() if k not in ("per_scenario","scenario_summary")},indent=2))
  print(json.dumps(report["scenario_summary"],indent=2))
  if report["status"]!="PASS":raise SystemExit(1)
