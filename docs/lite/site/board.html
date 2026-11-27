@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ObservaLog Lite · Live diagnosis board</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1012;--panel:#131b1d;--line:#253235;--muted:#91a2a0;--text:#edf5f2;--lime:#c9fa62;--red:#ff6f65;--amber:#f2c66d;--cyan:#77d8ce}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+header{padding:22px clamp(16px,4vw,48px);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}
+.brand{font-weight:800;font-size:18px;letter-spacing:-.04em}.brand small{font-size:11px;color:var(--muted);font-weight:500;margin-left:9px}
+#status{font:11px ui-monospace;color:var(--muted)}#status:before{content:"● ";color:var(--amber)}#status.ok:before{color:var(--lime)}
+main{max-width:1480px;margin:auto;padding:24px clamp(16px,4vw,48px)}
+.config{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+input{background:#0e1517;border:1px solid var(--line);color:var(--text);padding:11px 12px;border-radius:9px;min-width:190px;flex:1}
+button{background:var(--lime);color:#101614;border:0;padding:11px 15px;border-radius:9px;font-weight:800;cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:17px}
+.k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}.v{font-size:27px;font-weight:750;letter-spacing:-.04em;margin-top:6px}.sub{font-size:11px;color:var(--muted);margin-top:3px}
+.split{display:grid;grid-template-columns:1fr 1.2fr;gap:12px;margin-top:12px}
+h2{font-size:14px;margin:0 0 13px;letter-spacing:-.01em}
+table{width:100%;border-collapse:collapse;font-size:12px}td,th{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-weight:500}
+.svc{font-family:ui-monospace,monospace}.pill{display:inline-block;padding:2px 7px;border-radius:20px;font-size:10px;background:#253235;color:var(--muted)}.pill.bad{background:#412524;color:var(--red)}.pill.good{background:#25331d;color:var(--lime)}
+.logs{max-height:520px;overflow:auto;display:grid;gap:6px}.log{display:grid;grid-template-columns:90px 130px 65px 1fr;gap:8px;padding:9px;border-bottom:1px solid #202a2c;font:11px ui-monospace;align-items:start}.time{color:var(--muted)}.severity{color:var(--cyan)}.severity.ERROR,.severity.FATAL{color:var(--red)}.msg{overflow-wrap:anywhere;color:#d3ded9}
+.findings{display:grid;gap:8px}.finding{border:1px solid var(--line);border-left:3px solid var(--amber);padding:12px;border-radius:9px}.finding strong{display:block}.finding p{margin:5px 0;color:var(--muted);font-size:12px}.confidence{color:var(--lime);font:11px ui-monospace}
+.ready{margin-top:12px;border:1px solid var(--line);border-radius:13px;padding:16px;background:var(--panel)}.ready h2{margin-bottom:8px}.checks{display:flex;gap:8px;flex-wrap:wrap}.check{padding:7px 10px;border:1px solid var(--line);border-radius:8px;color:var(--muted);font-size:11px}.check.pass{color:var(--lime);border-color:#415633}
+.empty{color:var(--muted);font-size:12px;padding:14px 4px}
+footer{padding:22px 0;color:var(--muted);font-size:11px}
+@media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.split{grid-template-columns:1fr}.log{grid-template-columns:75px 100px 60px 1fr}}
+@media(max-width:540px){.grid{grid-template-columns:repeat(2,1fr)}.v{font-size:23px}.log{grid-template-columns:1fr;gap:3px}.config{display:grid}.config input{width:100%}}
+</style>
+</head>
+<body>
+<header><div class="brand">ObservaLog Lite <small>LIVE DIAGNOSIS BOARD</small></div><div id="status">Disconnected</div></header>
+<main>
+<div class="config"><input id="api" placeholder="Brain API base URL · e.g. https://your-brain.onrender.com"><input id="token" placeholder="Ingest / dashboard token" type="password"><button id="connect">Connect</button></div>
+<section class="grid">
+<div class="card"><div class="k">Events · last 60 min</div><div class="v" id="events">—</div><div class="sub">Processed canonical events</div></div>
+<div class="card"><div class="k">Errors · last 60 min</div><div class="v" id="errors">—</div><div class="sub">ERROR / FATAL severity</div></div>
+<div class="card"><div class="k">Services active</div><div class="v" id="services">—</div><div class="sub" id="serviceSub">Readiness target: 10+</div></div>
+<div class="card"><div class="k">Queue backlog</div><div class="v" id="queue">—</div><div class="sub" id="queueSub">Pending / leased / dead</div></div>
+</section>
+<div class="ready"><h2>First 60-minute soak readiness</h2><div class="checks" id="checks"><span class="check">Connect to Brain API</span><span class="check">≥10 active services</span><span class="check">Live event feed</span><span class="check">Queue healthy</span></div></div>
+<div class="split">
+<section class="card"><h2>Services · last hour</h2><div id="serviceTable" class="empty">Waiting for data</div></section>
+<section class="card"><h2>Incident diagnosis · evidence-backed findings</h2><div id="findings" class="findings"><div class="empty">No diagnosis feed yet</div></div></section>
+</div>
+<section class="card" style="margin-top:12px"><h2>Live log feed <span class="pill" id="logCount">polling</span></h2><div id="logs" class="logs"><div class="empty">Connect to start streaming</div></div></section>
+<footer>Polling cadence: 3 seconds · Read-only board · diagnosis is a hypothesis, not a causal guarantee</footer>
+</main>
+<script>
+const $=id=>document.getElementById(id);let timer=null,connected=false;
+const base=()=> $('api').value.trim().replace(/\/$/,'');
+const headers=()=>({'x-observalog-token':$('token').value.trim()});
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+async function get(path){const r=await fetch(base()+path,{headers:headers(),cache:'no-store'});if(!r.ok)throw Error(r.status+' '+r.statusText);return r.json()}
+function renderServices(items){if(!items.length){$('serviceTable').innerHTML='<div class="empty">No service events observed yet</div>';return}
+$('serviceTable').innerHTML='<table><thead><tr><th>Service</th><th>Events</th><th>Errors</th><th>Last seen</th></tr></thead><tbody>'+items.map(s=>'<tr><td class="svc">'+esc(s.service)+'</td><td>'+s.events+'</td><td><span class="pill '+(s.errors?'bad':'good')+'">'+s.errors+'</span></td><td>'+esc(s.last_seen?new Date(s.last_seen).toLocaleTimeString():'—')+'</td></tr>').join('')+'</tbody></table>'}
+function renderFindings(items){if(!items.length){$('findings').innerHTML='<div class="empty">No stored findings yet. New hypotheses will appear here as the reasoning gate emits findings.</div>';return}
+$('findings').innerHTML=items.map(f=>'<article class="finding"><strong>'+esc(f.title||f.category)+'</strong><p>'+esc(f.likely_cause)+'</p><div class="confidence">Confidence '+Math.round((f.confidence||0)*100)+'% · '+esc((f.affected_services||[]).join(', '))+'</div><p>Evidence event IDs: '+esc((f.evidence_event_ids||[]).join(', '))+'</p></article>').join('')}
+function renderLogs(items){if(!items.length){$('logs').innerHTML='<div class="empty">No canonical events yet</div>';return}
+$('logs').innerHTML=items.map(e=>'<div class="log"><span class="time">'+esc(e.observed_at?new Date(e.observed_at).toLocaleTimeString():'—')+'</span><span class="svc">'+esc(e.service||'unknown-service')+'</span><span class="severity '+esc(e.severity||'INFO')+'">'+esc(e.severity||'INFO')+'</span><span class="msg">'+esc(e.message||e.error_code||e.outcome||'event received')+'</span></div>').join('')}
+function setChecks(count,dead,hasFeed){const c=[['Connected',connected],['10+ services',count>=10],['Live events',hasFeed],['No dead queue',dead===0]];$('checks').innerHTML=c.map(([t,p])=>'<span class="check '+(p?'pass':'')+'">'+(p?'✓ ':'○ ')+t+'</span>').join('')}
+async function refresh(){try{const [s,l,f]=await Promise.all([get('/api/dashboard/summary'),get('/api/logs?limit=75'),get('/api/findings')]);
+connected=true;$('status').textContent='Connected · refreshed '+new Date().toLocaleTimeString();$('status').className='ok';
+$('events').textContent=s.event_count??0;$('errors').textContent=s.error_count??0;$('services').textContent=s.service_count??0;$('serviceSub').textContent=(s.service_count>=10?'10-service target reached':'Need '+(10-(s.service_count||0))+' more services');
+$('queue').textContent=(s.queue.pending||0)+' / '+(s.queue.leased||0)+' / '+(s.queue.dead||0);$('queueSub').textContent='Pending / leased / dead';
+renderServices(s.services||[]);renderLogs(l.events||[]);renderFindings(f.findings||[]);$('logCount').textContent=(l.events||[]).length+' recent';
+setChecks(s.service_count||0,s.queue.dead||0,(l.events||[]).length>0);
+}catch(e){connected=false;$('status').textContent='Disconnected · '+e.message;$('status').className='';setChecks(0,1,false)}}
+$('connect').onclick=()=>{if(!base()||!$('token').value.trim()){alert('Enter API base URL and token first.');return}sessionStorage.setItem('observalog_api',base());sessionStorage.setItem('observalog_token',$('token').value.trim());if(timer)clearInterval(timer);refresh();timer=setInterval(refresh,3000)};
+$('api').value=sessionStorage.getItem('observalog_api')||'';
+$('token').value=sessionStorage.getItem('observalog_token')||'';
+if($('api').value&&$('token').value){$('connect').click()}
+</script></body></html>
