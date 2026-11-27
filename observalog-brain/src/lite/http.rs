@@ -203,12 +203,16 @@ async fn dashboard_logs(State(state): State<IngestState>, headers: HeaderMap, ax
     Ok(Json(json!({"events":events})))
 }
 
-async fn dashboard_findings(State(state): State<IngestState>, headers: HeaderMap) -> Result<Json<Value>, (StatusCode, String)> {
+async fn dashboard_findings(State(state): State<IngestState>, headers: HeaderMap, axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String,String>>) -> Result<Json<Value>, (StatusCode, String)> {
     if !authorized(&headers, state.token.as_bytes()) {
         return Err((StatusCode::UNAUTHORIZED, "missing or invalid dashboard token".into()));
     }
-    let rows = sqlx::query("SELECT id, category, title, likely_cause, confidence, primary_event_id, evidence_event_ids, affected_services, alternatives, evidence, first_seen, last_seen, occurrence_count FROM lite_findings ORDER BY last_seen DESC LIMIT 50")
-        .fetch_all(&state.pool).await.map_err(internal_error)?;
+    let page = params.get("page").and_then(|v| v.parse::<i64>().ok()).unwrap_or(1).max(1);
+    let page_size = params.get("page_size").and_then(|v| v.parse::<i64>().ok()).unwrap_or(12).clamp(1,50);
+    let offset = (page - 1) * page_size;
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lite_findings").fetch_one(&state.pool).await.map_err(internal_error)?;
+    let rows = sqlx::query("SELECT id, category, title, likely_cause, confidence, primary_event_id, evidence_event_ids, affected_services, alternatives, evidence, first_seen, last_seen, occurrence_count FROM lite_findings ORDER BY last_seen DESC LIMIT $1 OFFSET $2")
+        .bind(page_size).bind(offset).fetch_all(&state.pool).await.map_err(internal_error)?;
     let findings: Vec<Value> = rows.iter().map(|r| json!({
         "id": r.try_get::<i64,_>("id").unwrap_or(0),
         "category": r.try_get::<String,_>("category").unwrap_or_default(),
@@ -224,7 +228,7 @@ async fn dashboard_findings(State(state): State<IngestState>, headers: HeaderMap
         "last_seen": r.try_get::<chrono::DateTime<chrono::Utc>,_>("last_seen").ok(),
         "occurrence_count": r.try_get::<i64,_>("occurrence_count").unwrap_or(1)
     })).collect();
-    Ok(Json(json!({"findings":findings})))
+    Ok(Json(json!({"findings":findings,"page":page,"page_size":page_size,"total":total,"total_pages":((total+page_size-1)/page_size)})))
 }
 
 fn decode_body(body: &[u8], source_header: &str) -> Vec<(String, Value, Option<String>)> {
