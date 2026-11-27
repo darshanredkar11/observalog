@@ -5,6 +5,7 @@ pub mod ml_state_contract;
 pub mod correlation;
 pub mod http;
 pub mod model;
+pub mod graph_diagnosis;
 pub mod queue;
 pub mod schema;
 
