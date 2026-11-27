@@ -1,0 +1,29 @@
+name: Gate 5.2-A Diagnostic Dataset Audit
+
+on:
+  push:
+    branches: [lite/chaos-gate-3-5]
+    paths:
+      - tests/incident_lab/generate.py
+      - tests/incident_lab/gate52_dataset_audit.py
+      - observalog-brain/docs/GATE_5_2_COOPERATIVE_DIAGNOSTICS.md
+      - .github/workflows/gate52-dataset-audit.yml
+  pull_request:
+    branches: [lite/chaos-gate-3-5]
+  workflow_dispatch:
+
+jobs:
+  dataset-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Audit scenario schema and raw leakage
+        run: python tests/incident_lab/gate52_dataset_audit.py --output gate52-audit.json
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate52-dataset-audit
+          path: gate52-audit.json
