@@ -184,8 +184,14 @@ async fn dashboard_logs(State(state): State<IngestState>, headers: HeaderMap, ax
         return Err((StatusCode::UNAUTHORIZED, "missing or invalid dashboard token".into()));
     }
     let limit = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(50).clamp(1,100);
-    let rows = sqlx::query("SELECT i.id, i.event_ts, i.observed_at, i.service, i.instance, i.severity, i.error_code, i.outcome, i.trace_id, i.request_id, i.quality_flags, p.canonical->>'message' AS message FROM lite_event_index i LEFT JOIN lite_event_payload p ON p.id=i.id ORDER BY i.observed_at DESC LIMIT $1")
-        .bind(limit).fetch_all(&state.pool).await.map_err(internal_error)?;
+    let ids = params.get("ids").map(|raw| raw.split(',').filter_map(|v| v.trim().parse::<i64>().ok()).take(100).collect::<Vec<_>>()).unwrap_or_default();
+    let rows = if ids.is_empty() {
+        sqlx::query("SELECT i.id, i.event_ts, i.observed_at, i.service, i.instance, i.severity, i.error_code, i.outcome, i.trace_id, i.request_id, i.quality_flags, p.canonical->>'message' AS message FROM lite_event_index i LEFT JOIN lite_event_payload p ON p.id=i.id ORDER BY i.observed_at DESC LIMIT $1")
+            .bind(limit).fetch_all(&state.pool).await.map_err(internal_error)?
+    } else {
+        sqlx::query("SELECT i.id, i.event_ts, i.observed_at, i.service, i.instance, i.severity, i.error_code, i.outcome, i.trace_id, i.request_id, i.quality_flags, p.canonical->>'message' AS message FROM lite_event_index i LEFT JOIN lite_event_payload p ON p.id=i.id WHERE i.id = ANY($1) ORDER BY i.observed_at DESC")
+            .bind(&ids).fetch_all(&state.pool).await.map_err(internal_error)?
+    };
     let events: Vec<Value> = rows.iter().map(|r| json!({
         "id": r.try_get::<i64,_>("id").unwrap_or(0),
         "event_ts": r.try_get::<chrono::DateTime<chrono::Utc>,_>("event_ts").ok(),
