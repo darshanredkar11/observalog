@@ -65,6 +65,7 @@ fn evaluate(events: &[Value]) -> Value {
     let diagnosis = rank(&diagnostic_events, &edges);
     let candidates: Vec<Value> = diagnosis.candidates.iter().map(|candidate| json!({
         "service": candidate.service,
+        "isolated_instance": candidate.isolated_instance,
         "score": candidate.score,
         "direct_failures": candidate.direct_failures,
         "upstream_failure_links": candidate.upstream_failure_links,
@@ -77,6 +78,7 @@ fn evaluate(events: &[Value]) -> Value {
     json!({
         "abstained": diagnosis.abstained,
         "likely_initiator": diagnosis.likely_initiator,
+        "likely_instance": diagnosis.likely_instance,
         "candidates": candidates,
         "note": diagnosis.note,
     })
