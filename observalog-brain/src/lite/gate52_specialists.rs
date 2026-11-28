@@ -269,7 +269,6 @@ pub fn resource_exhaustion(events: &[Value]) -> Option<Hypothesis> {
                 explanation: "Positive robust heap and GC-pause trends precede an explicit OOM endpoint.",
             });
         }
-        let _ = service_name;
     }
     None
 }
