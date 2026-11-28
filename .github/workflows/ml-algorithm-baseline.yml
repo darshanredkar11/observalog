@@ -36,5 +36,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: deterministic-baseline-report
-          path: /tmp/observalog-baseline/baseline-report.json
+          path: |
+            /tmp/observalog-baseline/baseline-report.json
+            /tmp/observalog-baseline/leakage-audit.json
           if-no-files-found: error
