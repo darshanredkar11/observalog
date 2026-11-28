@@ -224,7 +224,7 @@ pub fn resource_exhaustion(events: &[Value]) -> Option<Hypothesis> {
         let _ = ts;
     }
 
-    for ((service, instance_name), mut samples) in groups {
+    for ((service_name, instance_name), mut samples) in groups {
         samples.sort_by_key(|event| timestamp(event).unwrap_or(i64::MIN));
         if samples.len() < 3 { continue; }
         let mut heap_slopes = Vec::new();
@@ -245,7 +245,7 @@ pub fn resource_exhaustion(events: &[Value]) -> Option<Hypothesis> {
         let gc_delta = number_field(samples.last()?, "gc_pause_ms")?
             - number_field(samples.first()?, "gc_pause_ms")?;
         let oom = events.iter().find(|event| {
-            service(event).as_deref() == Some(service.as_str())
+            service(event).as_deref() == Some(service_name.as_str())
                 && instance(event).as_deref() == Some(instance_name.as_str())
                 && (string_field(event, "error_code").unwrap_or_default().to_ascii_uppercase().contains("OOM")
                     || string_field(event, "message").unwrap_or_default().to_ascii_lowercase().contains("outofmemoryerror"))
@@ -264,7 +264,7 @@ pub fn resource_exhaustion(events: &[Value]) -> Option<Hypothesis> {
                 explanation: "Positive robust heap and GC-pause trends precede an explicit OOM endpoint.",
             });
         }
-        let _ = service;
+        let _ = service_name;
     }
     None
 }
