@@ -153,7 +153,7 @@ def main():
     count = len(results)
     correct = sum(row["diagnosis_top1_correct"] for row in local)
     coverage = sum(not row["abstained"] for row in results) / count if count else 0.0
-    false_attributions = sum(row["false_attribution"] for row in nonlocal)
+    false_attributions = sum(row["false_attribution"] for row in nonlocal_rows)
     confidently_wrong = sum(row["confident_wrong_localizable"] for row in local)
     evidence_failures = sum(len(row["evidence_id_failures"]) for row in results)
 
