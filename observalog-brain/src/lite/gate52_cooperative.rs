@@ -10,7 +10,7 @@ use crate::lite::gate52_specialists::{self, Hypothesis};
 use super::graph_diagnosis::{rank, Candidate, DiagnosticEvent, EvidenceEdge};
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CooperativeDiagnosis {
@@ -174,7 +174,7 @@ pub fn analyze(events: &[Value]) -> CooperativeDiagnosis {
     }
 
     let graph = graph_fallback(events);
-    let fallback = if graph.abstained { None } else { graph.likely_initiator };
+    let fallback = if graph.abstained { None } else { graph.likely_initiator.clone() };
     CooperativeDiagnosis {
         accepted_specialist_hypotheses: accepted,
         rejected_specialist_hypotheses: rejected,
