@@ -7,8 +7,10 @@
 - Runs all 22 scenario factories across 3 deterministic permutations each (66 streams).
 - Mutation: optional-field loss (8% sampled), duplicate-delivery sampling (4%), arrival-order shuffle, event-ID deduplication.
 - Seed: 20261127.
-- Ground truth is used only after candidate scoring for evaluation.
+- Python generates and mutates fixture records, then invokes the compiled Rust `gate52_graph_eval` binary. The binary constructs normalized diagnostic events and calls the actual `graph_diagnosis::rank()`; Python does not reimplement the scoring algorithm.
+- Ground truth is joined only after the Rust prediction is returned.
 - Service target mapping is conservative: exact service, service@version, service/path, or exact instance. Healthy and multi-incident cases are excluded from single-root service localization.
+- Parent-child edges are constructed by a test adapter using matching span references, same trace/request scope, and tenant agreement. This is not yet the runtime database correlation path.
 
 ## Metrics (latest corrected evaluation)
 - **66 streams / 22 scenarios**
@@ -38,12 +40,12 @@ These results reflect a deliberate high-precision/low-coverage posture. The 100%
 - tied multiple-failure services abstain.
 
 ## Limitations
-This is a harness/prototype evaluation, not an end-to-end runtime integration. It scores generator records directly with a deterministic Python mirror of the Rust rules; the scorer does not receive ground-truth labels. No raw logs are parsed through the Rust collector, database correlation runtime, or production `lite_findings` path. Scores are not calibrated probabilities.
+This is a harness/prototype evaluation, not an end-to-end runtime integration. It now executes the Rust `graph_diagnosis::rank()` implementation, but it still feeds normalized generator records directly through a test adapter. No raw logs are parsed through the Rust collector, durable queue, database correlation runtime, or production `lite_findings` path. Scores are not calibrated probabilities and remain synthetic-corpus metrics.
 
 ## CI
-- Evaluator: [GitHub Actions run](https://github.com/darshanredkar11/observalog/actions/runs/45967361169)
-- Report artifact: `gate52-b-corpus-evaluation` from the run above.
-- Rust Gate 5.2-B unit tests + full test-suite compilation: [run](https://github.com/darshanredkar11/observalog/actions/runs/45967034373)
+- Rust-backed evaluator: [GitHub Actions run](https://github.com/darshanredkar11/observalog/actions/runs/46128046982)
+- Report artifact: `gate52-b-corpus-evaluation` from that run.
+- Rust graph unit tests: [run](https://github.com/darshanredkar11/observalog/actions/runs/46128046935)
 
 ## Review note
 The measured outcome is conservative. It can rank likely services, but it frequently abstains where root cause is external, compound, or insufficiently supported by structural/cohort evidence. This is intentional; Gate 5.2-C should add sequence-based evidence and be evaluated against the same corpus without weakening evidence-verification rules.
