@@ -8,6 +8,7 @@ pub mod model;
 pub mod graph_diagnosis;
 // Isolated Gate 5.2 specialist experiments; intentionally not wired to runtime.
 pub mod gate52_specialists;
+pub mod gate52_cooperative;
 pub mod queue;
 pub mod schema;
 
