@@ -80,8 +80,14 @@ def main():
     scenarios=sorted(set(labels.values()))
     heldout=sorted(HELD_OUT & set(scenarios))
     train_scenarios=sorted(set(scenarios)-set(heldout))
-    train_ids=[eid for eid,c in labels.items() if c in train_scenarios]
+    # Healthy records are split by opaque event ID so both train and test contain negatives.
+    # Held-out fault families remain entirely absent from training.
+    healthy_ids=sorted(eid for eid,c in labels.items() if c=="healthy_baseline")
+    healthy_test=set(healthy_ids[::5])
+    train_ids=[eid for eid,c in labels.items() if c in train_scenarios and c!="healthy_baseline"]
     test_ids=[eid for eid,c in labels.items() if c in heldout]
+    train_ids.extend(eid for eid in healthy_ids if eid not in healthy_test)
+    test_ids.extend(healthy_test)
     X_train=[features(unique[eid]) for eid in train_ids]
     X_test=[features(unique[eid]) for eid in test_ids]
     y_train=[int(labels[eid]!="healthy_baseline") for eid in train_ids]
@@ -118,7 +124,7 @@ def main():
     report={"gate":"5.3","status":"PASS","experiment":"binary incident detection, held-out scenario families",
             "base_records":len(labels),"raw_records_with_duplicates":len(raw),
             "unique_records":len(unique),"scenario_count":len(scenarios),
-            "train_scenario_families":train_scenarios,"held_out_scenario_families":heldout,
+            "train_scenario_families":train_scenarios,"held_out_scenario_families":heldout,"healthy_negative_split":"every fifth healthy event ID held out for test; remaining healthy events train",
             "train_events":len(train_ids),"test_events":len(test_ids),
             "feature_policy":"whitelist; excludes IDs, timestamps, tenant, region, instance, version, event sequence and ground truth",
             "results":reports,"limitations":["Synthetic corpus only; not production accuracy.","Held-out families are a single fixed split; conclusions require repeat-seed and cross-split validation.","Binary detection does not evaluate root-cause localization or accepted-diagnosis coverage."]}
