@@ -3,7 +3,7 @@ on:
   push:
     branches: [research/gate53-ml-generalization]
   pull_request:
-    branches: [research/gate53-ml-generalization]
+    branches: [lite/chaos-gate-3-5]
   workflow_dispatch:
 jobs:
   ml-generalization:
