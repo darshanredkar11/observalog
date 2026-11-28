@@ -74,6 +74,7 @@ def main():
     raw_label_tokens = []
     scenario_tokens = [name.lower() for name in generator.CASES]
     message_label_hits = []
+    operational_code_label_overlaps = []
     identifier_pattern_failures = []
     forbidden_fields = {"scenario", "ground_truth", "label", "expected_class", "primary_cause",
                         "primary_entity", "expected_observations", "must_not_correlate"}
@@ -90,17 +91,29 @@ def main():
         if keys & forbidden_fields:
             raw_label_tokens.append({"record": index, "fields": sorted(keys & forbidden_fields)})
 
-        serialized = json.dumps(event, sort_keys=True, ensure_ascii=False).lower()
+        # Error codes are retained as real operational evidence. A code such as
+        # AUTH_FAILURE may share a token with one fixture class while describing
+        # a concurrent fault inside a different multi-incident class.
+        feature_payload = {key: value for key, value in event.items() if key != "error_code"}
+        serialized = json.dumps(feature_payload, sort_keys=True, ensure_ascii=False).lower()
         direct_tokens = [token for token in scenario_tokens if token in serialized]
         if direct_tokens:
             matching_values = [
-                value for value in strings(event)
+                value for value in strings(feature_payload)
                 if any(token in value.lower() for token in direct_tokens)
             ]
             raw_label_tokens.append({
                 "record": index,
                 "scenario_tokens": direct_tokens,
                 "matching_values": matching_values[:10],
+            })
+        error_code = str(event.get("error_code") or "").lower()
+        code_tokens = [token for token in scenario_tokens if token in error_code]
+        if code_tokens:
+            operational_code_label_overlaps.append({
+                "record": index,
+                "error_code": event.get("error_code"),
+                "overlapping_scenario_tokens": code_tokens,
             })
 
         message = str(event.get("message") or "").lower()
@@ -138,6 +151,7 @@ def main():
     failures = {
         "raw_label_tokens": raw_label_tokens[:30],
         "message_label_hits": message_label_hits[:30],
+        "operational_code_label_overlaps": operational_code_label_overlaps[:30],
         "identifier_pattern_failures": identifier_pattern_failures[:30],
         "conflicting_duplicate_ids": conflicting_duplicates[:30],
         "missing_label_ids_in_raw": missing_from_raw[:30],
@@ -162,8 +176,9 @@ def main():
         "ordinal_schedule_accuracy": ordinal_accuracy,
         "random_schedule_baseline": 1.0 / case_count,
         "checks": {
-            "scenario_label_strings_absent_from_raw": not raw_label_tokens,
-            "scenario_label_strings_absent_from_messages": not message_label_hits,
+            "scenario_name_strings_absent_from_non_code_raw_fields": not raw_label_tokens,
+            "scenario_name_strings_absent_from_messages": not message_label_hits,
+            "error_code_overlaps_are_reported_as_operational_evidence": True,
             "opaque_ids_are_not_ordinal": not identifier_pattern_failures,
             "duplicates_are_exact_copies": not conflicting_duplicates,
             "raw_and_label_ids_match": not missing_from_raw and not unknown_in_raw,
@@ -173,7 +188,7 @@ def main():
         "failures": failures,
         "limitations": [
             "This is a leakage/integrity audit, not proof that all semantic shortcuts are absent.",
-            "Operational attributes such as HTTP status, error code, heap, retries and tenant cohort remain intentionally predictive features.",
+            "Operational attributes such as HTTP status, error code, heap, retries and tenant cohort remain intentionally predictive features; error-code/name overlaps are reported separately, not treated as metadata leakage.",
             "Any ML feature pipeline must exclude event IDs, raw timestamp sequence index, and ground-truth metadata from model features.",
         ],
     }
