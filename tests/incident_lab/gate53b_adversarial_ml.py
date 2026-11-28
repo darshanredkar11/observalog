@@ -58,9 +58,9 @@ def main():
     return {"threshold":t,"accuracy":accuracy_score(y,pred),"precision":precision_score(y,pred,zero_division=0),"recall":recall_score(y,pred,zero_division=0),"f1":f1_score(y,pred,zero_division=0),"false_positive_count":fp,"false_alerts_per_1000_healthy":fp/healthy_n*1000 if healthy_n else None}
    r={"seed":seed,"ablation":ab,"test_at_0_5":stats(yt,ps,.5,hn),"validation_calibrated_threshold":t,"test_at_validation_threshold":stats(yt,ps,t,hn),"prevalence_stress":{}}
    for prevalence in (.5,.1,.01):
-    rng=random.Random(seed+int(prevalence*1000));fi=list(faults);hi=list(he);rng.shuffle(fi);rng.shuffle(hi);nh=min(len(hi),int(len(fi)*(1-prevalence)/prevalence));ids=fi+hi[:nh];yy=[1]*len(fi)+[0]*nh
+    rng=random.Random(seed+int(prevalence*1000));fi=list(faults);hi=list(he);rng.shuffle(fi);rng.shuffle(hi);nf=min(len(fi),1000);fi=fi[:nf];nh=max(1,int(nf*(1-prevalence)/prevalence));hi=[rng.choice(he) for _ in range(nh)] if he else [];ids=fi+hi;yy=[1]*len(fi)+[0]*len(hi)
     probs=[float(ps[test.index(x)]) for x in ids];pairs=list(zip(yy,probs));rng.shuffle(pairs);sy=[x[0] for x in pairs];sp=[x[1] for x in pairs]
-    r["prevalence_stress"][str(prevalence)]={"realized_prevalence":sum(sy)/len(sy) if sy else 0,"at_0_5":stats(sy,sp,.5,nh),"at_validation_threshold":stats(sy,sp,t,nh)}
+    r["prevalence_stress"][str(prevalence)]={"requested_prevalence":prevalence,"realized_prevalence":sum(sy)/len(sy) if sy else 0,"healthy_sample_size":nh,"at_0_5":stats(sy,sp,.5,nh),"at_validation_threshold":stats(sy,sp,t,nh)}
    rows.append(r)
    if a.rust_binary and ab=="full":
     full=[u[x] for x in test];filtered=[u[x] for x,pv in zip(test,ps) if pv>=t];before=rust(a.rust_binary,full);after=rust(a.rust_binary,filtered)
