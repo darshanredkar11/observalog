@@ -106,7 +106,15 @@ def run_case(name, factory, permutation, binary):
     target = map_target(truth.get("primary_entity"), truth.get("category"), events)
     primary = result.get("primary_target")
     target_type = result.get("primary_target_type")
-    matched = prediction_matches(primary, target_type, truth.get("primary_entity"))
+    exact_target_match = prediction_matches(primary, target_type, truth.get("primary_entity"))
+    if target_type == "instance":
+        service_level_match = any(
+            event.get("service") == target and event.get("instance") == primary
+            for event in events
+        )
+    else:
+        service_level_match = bool(primary and target and str(primary).lower() == str(target).lower())
+    granularity_gap = bool(service_level_match and not exact_target_match)
     event_ids = {str(event.get("event_id")) for event in events}
     evidence_failures = [
         evidence_id
@@ -127,9 +135,12 @@ def run_case(name, factory, permutation, binary):
         "rejected_specialist_count": result.get("rejected_specialist_hypotheses", 0),
         "abstained": bool(result.get("abstained")),
         "localizable": target is not None,
-        "diagnosis_top1_correct": bool(target is not None and matched),
+        "diagnosis_top1_correct": bool(target is not None and exact_target_match),
+        "exact_target_correct": bool(target is not None and exact_target_match),
+        "service_localization_correct": bool(target is not None and service_level_match),
+        "target_granularity_gap": granularity_gap,
         "false_attribution": bool(primary and target is None),
-        "confident_wrong_localizable": bool(primary and target is not None and not matched),
+        "confident_wrong_localizable": bool(primary and target is not None and not service_level_match),
         "evidence_id_failures": evidence_failures,
         "event_count": len(events),
     }
@@ -152,6 +163,8 @@ def main():
     nonlocal_rows = [row for row in results if not row["localizable"]]
     count = len(results)
     correct = sum(row["diagnosis_top1_correct"] for row in local)
+    service_correct = sum(row["service_localization_correct"] for row in local)
+    granularity_gaps = sum(row["target_granularity_gap"] for row in local)
     coverage = sum(not row["abstained"] for row in results) / count if count else 0.0
     false_attributions = sum(row["false_attribution"] for row in nonlocal_rows)
     confidently_wrong = sum(row["confident_wrong_localizable"] for row in local)
@@ -162,7 +175,7 @@ def main():
         "status": "PASS" if (
             count == len(generator.CASES) * PERMUTATIONS
             and evidence_failures == 0
-            and correct == len(local)
+            and service_correct == len(local)
             and false_attributions == 0
             and confidently_wrong == 0
         ) else "FAIL",
@@ -174,7 +187,9 @@ def main():
         "localizable_streams": len(local),
         "accepted_diagnoses": sum(not row["abstained"] for row in results),
         "coverage": coverage,
-        "diagnosis_top1_accuracy_on_localizable": correct / len(local) if local else None,
+        "exact_target_top1_accuracy_on_localizable": correct / len(local) if local else None,
+        "service_localization_top1_accuracy_on_localizable": service_correct / len(local) if local else None,
+        "target_granularity_gaps": granularity_gaps,
         "false_attributions_nonlocalizable": false_attributions,
         "false_attribution_rate_nonlocalizable": false_attributions / len(nonlocal_rows) if nonlocal_rows else 0.0,
         "confidently_wrong_localizable": confidently_wrong,
@@ -200,7 +215,9 @@ def main():
             "target_type": row["primary_target_type"],
             "source": row["decision_source"],
             "abstained": row["abstained"],
-            "correct": row["diagnosis_top1_correct"],
+            "exact_target_correct": row["exact_target_correct"],
+            "service_localization_correct": row["service_localization_correct"],
+            "granularity_gap": row["target_granularity_gap"],
         }
         for row in results if row["permutation"] == 0
     }, indent=2))
