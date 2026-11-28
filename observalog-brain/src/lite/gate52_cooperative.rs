@@ -175,13 +175,19 @@ pub fn analyze(events: &[Value]) -> CooperativeDiagnosis {
     }
 
     let graph = graph_fallback(events);
-    let fallback = if graph.abstained { None } else { graph.likely_initiator.clone() };
+    let (fallback, fallback_type) = if graph.abstained {
+        (None, None)
+    } else if let Some(instance) = graph.likely_instance.clone() {
+        (Some(instance), Some("instance".to_owned()))
+    } else {
+        (graph.likely_initiator.clone(), graph.likely_initiator.as_ref().map(|_| "service".to_owned()))
+    };
     CooperativeDiagnosis {
         accepted_specialist_hypotheses: accepted,
         rejected_specialist_hypotheses: rejected,
         graph_fallback_target: fallback.clone(),
         primary_target: fallback,
-        primary_target_type: graph.likely_initiator.map(|_| "service".to_owned()),
+        primary_target_type: fallback_type,
         decision_source: if graph.abstained { "abstain" } else { "graph" },
         abstained: graph.abstained,
     }
@@ -245,6 +251,20 @@ mod tests {
         let result = analyze(&events);
         assert!(result.abstained);
         assert_eq!(result.primary_target, None);
+    }
+
+    #[test]
+    fn graph_fallback_preserves_unique_replica_target_granularity() {
+        let events = vec![
+            json!({"event_id":"e1","service":"identity","instance":"identity-01","offset_ms":1,"version":"2.2.1","level":"INFO"}),
+            json!({"event_id":"e2","service":"identity","instance":"identity-02","offset_ms":2,"version":"2.2.1","level":"INFO"}),
+            json!({"event_id":"e3","service":"identity","instance":"identity-03","offset_ms":3,"version":"2.2.1","level":"ERROR","error_code":"JWT_ISSUER_MISMATCH"}),
+        ];
+        let result = analyze(&events);
+        assert_eq!(result.decision_source, "graph");
+        assert_eq!(result.primary_target.as_deref(), Some("identity-03"));
+        assert_eq!(result.primary_target_type.as_deref(), Some("instance"));
+        assert!(!result.abstained);
     }
 
     #[test]
