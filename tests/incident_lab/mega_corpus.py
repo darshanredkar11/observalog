@@ -18,9 +18,9 @@ def event(r,i,c,g,ts,trace_reuse_pool):
  elif c=="replica_config_drift": attrs["config_fingerprint"]="drifted" if r.random()<.25 else "baseline"
  elif c=="release_regression": version="2.2.0" if r.random()<.5 else "2.1.4"; level="ERROR" if version=="2.2.0" and r.random()<.7 else "INFO"; outcome="failure" if level=="ERROR" else "success"; code="REGRESSION" if level=="ERROR" else None
  elif c=="db_lock_contention": level="WARN"; dur=r.randint(800,10000); attrs.update(lock_wait_ms=dur,pool_active=40,pool_max=40)
- elif c=="duplicate_delivery": attrs.update(message_id=f"msg-{g}-{i%17}",delivery_attempt=r.randint(1,5),idempotency_key=f"idem-{i%17}")
+ elif c=="duplicate_delivery": attrs.update(message_id=opaque_id(r,"msg"),delivery_attempt=r.randint(1,5),idempotency_key=opaque_id(r,"idem"))
  elif c=="business_invariant_violation": level,outcome,code="ERROR","failure","STATE_MISMATCH"; attrs.update(order_state="paid",settlement_state="failed")
- elif c=="independent_incidents": level,outcome,code="ERROR","failure",r.choice(["DNS_FAILURE","DB_TIMEOUT","AUTH_REJECT"]); trace=f"independent-{i}"
+ elif c=="independent_incidents": level,outcome,code="ERROR","failure",r.choice(["DNS_FAILURE","DB_TIMEOUT","AUTH_REJECT"])
  elif c=="missing_trace": trace=None; attrs["business_key"]=entity
  elif c=="clock_skew": attrs.update(parent_span_id=opaque_id(r,"span"),clock_offset_ms=r.choice([-120000,-30000,30000,120000]))
  elif c=="queue_backlog": level="WARN"; attrs.update(queue_depth=r.randint(200,20000),consumer_lag_ms=r.randint(1000,120000))
@@ -28,9 +28,9 @@ def event(r,i,c,g,ts,trace_reuse_pool):
  elif c=="tenant_config_drift": tenant="affected" if r.random()<.2 else "control"; attrs["feature_flag"]="new-flow" if tenant=="affected" else "stable-flow"
  elif c=="shared_dns_failure": level,outcome,code="ERROR","failure","DNS_LOOKUP_FAILED"; attrs["dependency"]="shared-dns"
  elif c=="schema_drift": level,outcome,code="ERROR","failure","SCHEMA_CONVERSION"; attrs.update(expected_type="integer",actual_type="string")
- elif c=="poison_record": level,outcome,code=("ERROR","failure","MALFORMED_PAYLOAD") if i%9==0 else ("INFO","success",None); msg="Malformed record" if level=="ERROR" else "Adjacent valid record"
+ elif c=="poison_record": level,outcome,code=("ERROR","failure","MALFORMED_PAYLOAD") if r.random()<1/9 else ("INFO","success",None); msg="Malformed record" if level=="ERROR" else "Adjacent valid record"
  elif c=="mixed_format": msg=r.choice(["request completed","WARN upstream slow","cache hit","ERROR invalid response","status=200 duration=42ms"])
- elif c=="overlapping_incidents": level,outcome="ERROR","failure"; code="AUTH_FAILURE" if i%2==0 else "DB_TIMEOUT"; trace=f"overlap-{g}-{i%2}"
+ elif c=="overlapping_incidents": level,outcome="ERROR","failure"; code=r.choice(["AUTH_FAILURE","DB_TIMEOUT"])
  elif c=="trace_id_reuse": trace=r.choice(trace_reuse_pool); attrs["business_key"]=entity
  elif c=="large_fanout": s=r.choice(SERVICES); attrs.update(fanout_slot=r.randrange(12),parent_span_id=opaque_id(r,"span"))
  elif c=="deadline_timeout": level,outcome,code="ERROR","failure","DEADLINE_EXCEEDED"; dur=r.randint(2000,20000)
