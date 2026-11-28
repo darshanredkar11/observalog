@@ -41,3 +41,70 @@ pub struct IngestResponse {
     pub duplicates: usize,
     pub rejected: usize,
 }
+
+/// Replaces NUL bytes (`\0`) in text so PostgreSQL TEXT/JSONB inserts never fail.
+pub fn sanitize_text_nulls(input: &str) -> String {
+    if input.contains('\0') {
+        input.replace('\0', "\u{FFFD}")
+    } else {
+        input.to_string()
+    }
+}
+
+/// Recursively replaces NUL characters (`\0`) inside JSON strings and object keys
+/// because PostgreSQL JSONB rejects `\u0000`. Returns `true` if any NUL was found.
+pub fn sanitize_json_nulls(value: &mut Value) -> bool {
+    match value {
+        Value::String(text) => {
+            if text.contains('\0') {
+                *text = text.replace('\0', "\u{FFFD}");
+                true
+            } else {
+                false
+            }
+        }
+        Value::Array(items) => {
+            let mut changed = false;
+            for item in items {
+                changed |= sanitize_json_nulls(item);
+            }
+            changed
+        }
+        Value::Object(map) => {
+            let mut changed = false;
+            let keys_with_null: Vec<String> = map
+                .keys()
+                .filter(|k| k.contains('\0'))
+                .cloned()
+                .collect();
+            for old_key in keys_with_null {
+                if let Some(val) = map.remove(&old_key) {
+                    map.insert(old_key.replace('\0', "\u{FFFD}"), val);
+                    changed = true;
+                }
+            }
+            for val in map.values_mut() {
+                changed |= sanitize_json_nulls(val);
+            }
+            changed
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn sanitize_json_nulls_removes_nul_from_keys_and_values() {
+        let mut payload = json!({
+            "msg": "\u{0000}binary\u{0001}",
+            "nested": [{"k\u{0000}ey": "a\u{0000}b"}]
+        });
+        assert!(sanitize_json_nulls(&mut payload));
+        assert!(!payload.to_string().contains("\\u0000"));
+        assert!(!sanitize_json_nulls(&mut payload));
+    }
+}

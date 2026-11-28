@@ -1,7 +1,7 @@
 name: ObservaLog Lite Dashboard Build, E2E & Pages Deploy
 on:
   push:
-    branches: [lite/chaos-gate-3-5]
+    branches: [main, lite/chaos-gate-3-5]
     paths:
       - 'docs/lite/dashboard/**'
       - '.github/workflows/dashboard-build-deploy.yml'

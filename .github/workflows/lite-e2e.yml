@@ -6,7 +6,7 @@ concurrency:
 
 on:
   push:
-    branches: [lite/streaming-adapter, lite/adversarial-gate-testing, lite/chaos-gate-3-5]
+    branches: [main, lite/streaming-adapter, lite/adversarial-gate-testing, lite/chaos-gate-3-5]
     paths:
       - "observalog-brain/**"
       - "tests/incident_lab/**"

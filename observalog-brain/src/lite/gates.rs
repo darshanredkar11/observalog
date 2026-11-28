@@ -1,4 +1,8 @@
-use super::{adapter, model::CanonicalEvent, queue::{self, WorkItem}};
+use super::{
+    adapter,
+    model::{sanitize_json_nulls, sanitize_text_nulls, CanonicalEvent},
+    queue::{self, WorkItem},
+};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -103,8 +107,19 @@ fn normalize_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> GateFuture<'a> {
     Box::pin(async move {
         // Use the durable receipt timestamp, not worker execution time. This
         // keeps inferred event timestamps stable across retries and replays.
-        let event = adapter::adapt(&work.raw_text, &work.source_metadata, work.received_at);
-        let canonical = serde_json::to_value(&event)?;
+        let mut event = adapter::adapt(&work.raw_text, &work.source_metadata, work.received_at);
+        let mut canonical = serde_json::to_value(&event)?;
+        let mut source_metadata = work.source_metadata.clone();
+        let raw_text = sanitize_text_nulls(&work.raw_text);
+        let had_nulls = sanitize_json_nulls(&mut canonical)
+            | sanitize_json_nulls(&mut source_metadata);
+        if had_nulls {
+            event = serde_json::from_value(canonical.clone())?;
+            if let Some(flags) = event.quality.get_mut("flags").and_then(Value::as_array_mut) {
+                flags.push(Value::String("null_byte_sanitized".to_string()));
+            }
+            canonical = serde_json::to_value(&event)?;
+        }
         let mut tx = pool.begin().await?;
 
         let payload_id: i64 = sqlx::query_scalar(
@@ -117,8 +132,8 @@ fn normalize_one<'a>(pool: &'a PgPool, work: &'a WorkItem) -> GateFuture<'a> {
             "#
         )
         .bind(&work.raw_id)
-        .bind(&work.raw_text)
-        .bind(&work.source_metadata)
+        .bind(&raw_text)
+        .bind(&source_metadata)
         .bind(&canonical)
         .bind(&event.provenance)
         .bind(&event.quality)

@@ -16,8 +16,11 @@ def request(url, method="GET", body=None, token=None, headers=None, timeout=30):
     except urllib.error.HTTPError as e:
         return e.code,e.read()
 
-def psql(sql):
-    cmd=["docker","compose","exec","-T","timescaledb","psql","-U","observalog","-d","observalog","-Atqc",sql]
+def psql(sql, database_url=None):
+    if database_url:
+        cmd=["psql",database_url,"-Atqc",sql]
+    else:
+        cmd=["docker","compose","exec","-T","timescaledb","psql","-U","observalog","-d","observalog","-Atqc",sql]
     return subprocess.check_output(cmd,text=True).strip()
 
 def main():
@@ -25,8 +28,10 @@ def main():
     ap.add_argument("--base-url",default="http://localhost:4000")
     ap.add_argument("--token",default=os.environ.get("LITE_INGEST_TOKEN"))
     ap.add_argument("--payload-file",default="/tmp/observalog-adversarial.jsonl")
+    ap.add_argument("--database-url",default=os.environ.get("DATABASE_URL"))
     args=ap.parse_args()
     if not args.token: raise SystemExit("LITE_INGEST_TOKEN is required")
+    db_url=args.database_url
     payloads=[line for line in Path(args.payload_file).read_text(encoding="utf-8").splitlines() if line]
     # Security and boundary tests: must reject unauthorized/empty requests.
     code,_=request(args.base_url+"/ingest/raw","POST",b'["unauthorized-test"]',token="wrong-token")
@@ -38,7 +43,7 @@ def main():
     code,_=request(args.base_url+"/ingest/raw","POST",oversized,token=args.token,headers={"Content-Type":"text/plain"},timeout=90)
     assert code==413, f"oversize request expected 413, got {code}"
 
-    raw_before=int(psql("SELECT COUNT(*) FROM lite_raw_records"))
+    raw_before=int(psql("SELECT COUNT(*) FROM lite_raw_records", db_url))
     accepted_total=0
     batch=48
     batches=[payloads[offset:offset+batch] for offset in range(0,len(payloads),batch)]
@@ -66,9 +71,9 @@ def main():
     print(f"Accepted {accepted_total} adversarial unique payloads plus 2 duplicate deliveries; waiting for gates to drain...")
     drained=False
     for _ in range(240):
-        pending=int(psql("SELECT COUNT(*) FROM lite_gate_work WHERE state IN ('pending','leased')"))
-        dead=int(psql("SELECT COUNT(*) FROM lite_gate_work WHERE state='dead'"))
-        raw=int(psql("SELECT COUNT(*) FROM lite_raw_records"))
+        pending=int(psql("SELECT COUNT(*) FROM lite_gate_work WHERE state IN ('pending','leased')", db_url))
+        dead=int(psql("SELECT COUNT(*) FROM lite_gate_work WHERE state='dead'", db_url))
+        raw=int(psql("SELECT COUNT(*) FROM lite_raw_records", db_url))
         if pending==0 and raw==expected_raw:
             drained=True
             break
@@ -77,18 +82,18 @@ def main():
     # Validate raw records are retained and every unique accepted test record
     # has both normalized payload and index. Duplicate source IDs may intentionally
     # be suppressed at canonical indexing, so account for the deliberate pair.
-    payload_count=int(psql("SELECT COUNT(*) FROM lite_event_payload"))
-    index_count=int(psql("SELECT COUNT(*) FROM lite_event_index"))
-    raw_preserved=int(psql("SELECT COUNT(*) FROM lite_event_payload p JOIN lite_raw_records r ON r.id=p.raw_id WHERE p.raw_text IS NOT DISTINCT FROM r.raw_text"))
-    flags_count=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE jsonb_array_length(quality_flags)>0"))
-    missing_trace=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE trace_id IS NULL"))
-    missing_outcome=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE outcome IS NULL"))
-    missing_duration=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE duration_ms IS NULL"))
-    signal_count=int(psql("SELECT COUNT(*) FROM lite_signals"))
-    finding_count=int(psql("SELECT COUNT(*) FROM lite_findings"))
-    short_trace_links=int(psql("SELECT COUNT(*) FROM lite_event_links WHERE evidence->>'trace_id'='A'"))
-    short_trace_flagged=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE quality_flags::text LIKE '%trace_id_short_unverified%'"))
-    malformed_preserved=int(psql("SELECT COUNT(*) FROM lite_event_payload WHERE raw_text IN ('{','{not-json}','undefined','Infinity','-Infinity')"))
+    payload_count=int(psql("SELECT COUNT(*) FROM lite_event_payload", db_url))
+    index_count=int(psql("SELECT COUNT(*) FROM lite_event_index", db_url))
+    raw_preserved=int(psql("SELECT COUNT(*) FROM lite_event_payload p JOIN lite_raw_records r ON r.id=p.raw_id WHERE p.raw_text IS NOT DISTINCT FROM r.raw_text", db_url))
+    flags_count=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE jsonb_array_length(quality_flags)>0", db_url))
+    missing_trace=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE trace_id IS NULL", db_url))
+    missing_outcome=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE outcome IS NULL", db_url))
+    missing_duration=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE duration_ms IS NULL", db_url))
+    signal_count=int(psql("SELECT COUNT(*) FROM lite_signals", db_url))
+    finding_count=int(psql("SELECT COUNT(*) FROM lite_findings", db_url))
+    short_trace_links=int(psql("SELECT COUNT(*) FROM lite_event_links WHERE evidence->>'trace_id'='A'", db_url))
+    short_trace_flagged=int(psql("SELECT COUNT(*) FROM lite_event_index WHERE quality_flags::text LIKE '%trace_id_short_unverified%'", db_url))
+    malformed_preserved=int(psql("SELECT COUNT(*) FROM lite_event_payload WHERE raw_text IN ('{','{not-json}','undefined','Infinity','-Infinity')", db_url))
     assert payload_count==index_count, f"payload/index mismatch {payload_count}/{index_count}"
     assert raw_preserved==payload_count, f"raw payload not preserved for {raw_preserved}/{payload_count}"
     assert flags_count>0, "negative payload corpus produced no quality flags"

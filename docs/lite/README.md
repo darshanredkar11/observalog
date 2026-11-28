@@ -13,7 +13,8 @@ Kafka, Valkey/Redis and an LLM are not required by this runtime. No independent 
 - Canonical adapter: JSON aliases, nested OpenTelemetry-style attributes, Pino numeric levels, common Spring/Python-style text and key/value context; preserves raw text and provenance.
 - Durable stages: normalization, quality, correlation, signal detection and deterministic evidence-based reasoning.
 - Storage: raw journal, canonical JSONB payload, TimescaleDB typed event projection, durable work rows, relationship edges, signals and findings.
-- CI: Rust release build, unit tests and Clippy are green; incident generator checks are green. The final three-permutation Fluent Bit → TimescaleDB acceptance run is in progress and must pass before calling the branch release-ready.
+- CI: Rust release build, unit tests, strict Clippy, incident generator checks, native multi-replica Chaos Gate 3.5 verification, 820-payload adversarial negative suite, and dashboard Playwright E2E are green.
+- Storage note: when the `timescaledb` extension is present, `lite_event_index` is converted to a 1-day hypertable (with optional `LITE_RETENTION_DAYS` retention policy); on plain PostgreSQL 16 it initializes as a standard indexed table automatically.
 
 The branch has been physically reduced to the lite runtime: the brain's compiled source tree contains only the lite modules, and the SDK/Kafka/Valkey/LLM paths are absent from the active repository runtime.
 
@@ -62,7 +63,7 @@ A missing trace ID is normal input, not a parse failure. The adapter does not in
 - `lite_source_identity`: best-effort source event identity deduplication, scoped by collection file, service and instance so local IDs from separate streams do not collide.
 - `lite_event_links`, `lite_signals`, `lite_findings`: correlation graph, event signals and current finding materialization.
 
-Findings are currently available from TimescaleDB (there is no dashboard or public findings API in this lite phase):
+Findings are exposed via authenticated read-only HTTP endpoints (`/api/findings`, `/api/logs`, `/api/dashboard/summary` — see [docs/lite/dashboard](dashboard/README.md) for the UI) or directly from PostgreSQL/TimescaleDB:
 
 ```sql
 SELECT id, category, title, likely_cause, confidence,
@@ -73,7 +74,7 @@ ORDER BY last_seen DESC
 LIMIT 50;
 ```
 
-No automatic TimescaleDB retention policy is enabled yet. Set retention only after choosing explicit raw, payload, index and finding retention requirements.
+Automatic TimescaleDB retention is disabled by default; set `LITE_RETENTION_DAYS=<days>` when `timescaledb` is installed to enable automatic chunk retention on `lite_event_index`.
 
 ## Verification
 

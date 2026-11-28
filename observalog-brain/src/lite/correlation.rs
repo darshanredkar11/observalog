@@ -577,6 +577,7 @@ mod gate3_correlation_tests {
     use chrono::{DateTime, Utc};
     use serde_json::json;
 
+    #[allow(clippy::too_many_arguments)]
     fn event(
         seconds: i64, trace: Option<&str>, request: Option<&str>, entity: Option<&str>,
         tenant: Option<&str>, span: Option<&str>, parent: Option<&str>, message_id: Option<&str>,
@@ -590,7 +591,7 @@ mod gate3_correlation_tests {
         CanonicalEvent {
             source_name: Some("test".into()),
             source_event_id: Some(format!("event-{seconds}")),
-            event_ts: timestamp.clone(),
+            event_ts: timestamp,
             observed_at: timestamp,
             event_ts_inferred: false,
             service: Some("svc".into()),

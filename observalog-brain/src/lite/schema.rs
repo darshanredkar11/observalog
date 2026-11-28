@@ -1,9 +1,8 @@
 use anyhow::Result;
 use sqlx::PgPool;
+use tracing::warn;
 
 pub const DDL: &str = r#"
-CREATE EXTENSION IF NOT EXISTS timescaledb;
-
 CREATE TABLE IF NOT EXISTS lite_raw_records (
     id              TEXT PRIMARY KEY,
     raw_text        TEXT NOT NULL,
@@ -80,12 +79,6 @@ CREATE TABLE IF NOT EXISTS lite_event_index (
     PRIMARY KEY (event_ts, id)
 );
 
-SELECT create_hypertable(
-    'lite_event_index', 'event_ts',
-    chunk_time_interval => INTERVAL '1 day',
-    if_not_exists => TRUE
-);
-
 CREATE INDEX IF NOT EXISTS lite_event_trace_time_idx
     ON lite_event_index (trace_id, event_ts DESC);
 CREATE INDEX IF NOT EXISTS lite_event_request_time_idx
@@ -146,8 +139,40 @@ CREATE INDEX IF NOT EXISTS lite_findings_last_seen_idx ON lite_findings (last_se
 "#;
 
 pub async fn run(pool: &PgPool) -> Result<()> {
-    // This DDL is a trusted, compile-time constant and intentionally contains
-    // multiple statements (including TimescaleDB extension/hypertable setup).
+    let has_timescaledb: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb')",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if has_timescaledb {
+        sqlx::raw_sql("CREATE EXTENSION IF NOT EXISTS timescaledb;")
+            .execute(pool)
+            .await?;
+    } else {
+        warn!("timescaledb extension unavailable; initializing lite_event_index as a standard PostgreSQL table");
+    }
+
     sqlx::raw_sql(DDL).execute(pool).await?;
+
+    if has_timescaledb {
+        sqlx::raw_sql(
+            "SELECT create_hypertable('lite_event_index', 'event_ts', chunk_time_interval => INTERVAL '1 day', if_not_exists => TRUE);",
+        )
+        .execute(pool)
+        .await?;
+
+        if let Some(days) = std::env::var("LITE_RETENTION_DAYS")
+            .ok()
+            .and_then(|v| v.parse::<i32>().ok())
+            .filter(|d| *d > 0)
+        {
+            sqlx::query("SELECT add_retention_policy('lite_event_index', make_interval(days => $1), if_not_exists => TRUE)")
+                .bind(days)
+                .execute(pool)
+                .await?;
+        }
+    }
+
     Ok(())
 }

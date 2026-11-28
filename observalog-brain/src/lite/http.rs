@@ -12,7 +12,7 @@ use tower_http::cors::{Any, CorsLayer};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use super::model::IngestResponse;
+use super::model::{sanitize_json_nulls, sanitize_text_nulls, IngestResponse};
 
 #[derive(Clone)]
 struct IngestState {
@@ -261,7 +261,11 @@ fn values_to_records(value: Value, source_header: &str) -> Vec<(String, Value, O
 fn record_from_line(line: &str, source_header: &str) -> (String, Value, Option<String>) {
     match serde_json::from_str::<Value>(line) {
         Ok(value) => record_from_value(value, source_header),
-        Err(_) => (line.to_string(), json!({"source_name":source_header,"format":"text"}), None),
+        Err(_) => (
+            sanitize_text_nulls(line),
+            json!({"source_name":sanitize_text_nulls(source_header),"format":"text"}),
+            None,
+        ),
     }
 }
 
@@ -276,6 +280,7 @@ fn record_from_value(value: Value, source_header: &str) -> (String, Value, Optio
     if let Some(object) = metadata.as_object_mut() {
         object.entry("source_name".to_string()).or_insert_with(|| json!(source_header));
     }
+    sanitize_json_nulls(&mut metadata);
 
     let is_fluent_bit_envelope = value.get("log").and_then(Value::as_str).is_some()
         && (value.get("source_path").is_some() || value.get("tag").is_some());
@@ -287,11 +292,12 @@ fn record_from_value(value: Value, source_header: &str) -> (String, Value, Optio
             _ => serde_json::to_string(&value).unwrap_or_else(|_| value.to_string()),
         }
     };
+    let raw_text = sanitize_text_nulls(&raw_text);
 
     let source_path = value.get("source_path").and_then(Value::as_str);
     let source_offset = value.get("source_offset").and_then(value_to_string);
     let source_key = source_path.zip(source_offset.as_deref())
-        .map(|(path, offset)| format!("{source_header}:{path}:{offset}"));
+        .map(|(path, offset)| sanitize_text_nulls(&format!("{source_header}:{path}:{offset}")));
 
     (raw_text, metadata, source_key)
 }

@@ -6,20 +6,24 @@ Rust runtime for raw-log ingestion and streaming analysis. It accepts heterogene
 
 | Variable | Required | Default | Purpose |
 |---|---:|---|---|
-| `DATABASE_URL` | yes | — | TimescaleDB connection string |
-| `LITE_INGEST_TOKEN` | yes | — | Shared secret required by `POST /ingest/raw`, sent in `X-ObservaLog-Token` (minimum 24 bytes) |
+| `DATABASE_URL` | yes | — | PostgreSQL / TimescaleDB connection string |
+| `LITE_INGEST_TOKEN` | yes | — | Shared secret required by `POST /ingest/raw` and `/api/*`, sent in `X-ObservaLog-Token` (minimum 24 bytes) |
 | `LISTEN_ADDR` | no | `0.0.0.0:4000` | HTTP bind address |
 | `DB_MAX_CONNECTIONS` | no | `20` | SQL connection pool size |
 | `LITE_SLOW_THRESHOLD_MS` | no | `1000` | Slow-operation signal threshold |
 | `LITE_MAX_INFLIGHT_GATE_WORK` | no | `50000` | Maximum pending/leased durable work across all gates; full queue returns HTTP 503 |
+| `LITE_RETENTION_DAYS` | no | — | Optional TimescaleDB retention window (days) for `lite_event_index` when `timescaledb` extension is installed |
 | `RUST_LOG` | no | `info` | Tracing filter |
 
-No Anthropic key, Kafka broker or Valkey server is required.
+No Anthropic key, Kafka broker or Valkey server is required. When the `timescaledb` extension is unavailable (e.g. plain PostgreSQL 16), `lite_event_index` falls back to a standard indexed table automatically.
 
 ## API
 
 - `GET /health`
 - `POST /ingest/raw` — accepts one JSON record, a JSON array, JSON Lines or raw text.
+- `GET /api/dashboard/summary` — authenticated 60-minute summary, service error counts, and queue depths.
+- `GET /api/logs` — authenticated recent events (`limit`) or evidence lookup (`ids=...`).
+- `GET /api/findings` — authenticated paginated incident hypotheses (`page`, `page_size`).
 
 The endpoint requires `X-ObservaLog-Token: <LITE_INGEST_TOKEN>` and returns HTTP 202 after the raw journal row and normalization work item commit in one database transaction. If persistence is unavailable or the bounded durable gate queue is full it returns 503, allowing Fluent Bit to retry from its filesystem buffer. The HTTP request-body limit is 16 MB.
 
