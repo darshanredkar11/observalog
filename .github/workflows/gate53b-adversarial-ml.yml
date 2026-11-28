@@ -1,0 +1,40 @@
+name: Gate 5.3-B Adversarial ML Validation
+on:
+  push:
+    branches: [research/gate53b-adversarial-ml]
+    paths:
+      - tests/incident_lab/gate53b_adversarial_ml.py
+      - tests/incident_lab/mega_corpus.py
+      - observalog-brain/src/bin/gate52_graph_eval.rs
+      - .github/workflows/gate53b-adversarial-ml.yml
+  pull_request:
+    branches: [research/gate53b-adversarial-ml]
+  workflow_dispatch:
+jobs:
+  adversarial-ml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Python dependencies
+        run: python -m pip install --upgrade pip scikit-learn
+      - name: Build actual Rust graph ranker evaluator
+        run: cargo build --release --manifest-path observalog-brain/Cargo.toml --bin gate52_graph_eval
+      - name: Generate seeded corpus
+        run: python3 tests/incident_lab/mega_corpus.py --count 25000 --seed 20261128 --duplicate-rate 0.04 --output /tmp/gate53b/corpus
+      - name: Run adversarial validation
+        run: |
+          python3 tests/incident_lab/gate53b_adversarial_ml.py \
+            --raw /tmp/gate53b/corpus/raw/corpus.jsonl \
+            --labels /tmp/gate53b/corpus/ground-truth/labels.json \
+            --rust-binary observalog-brain/target/release/gate52_graph_eval \
+            --output /tmp/gate53b/report.json
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate53b-adversarial-ml-report
+          path: /tmp/gate53b/report.json
+          if-no-files-found: error
