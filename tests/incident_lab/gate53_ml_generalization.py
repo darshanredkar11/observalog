@@ -110,8 +110,10 @@ def main():
     rule_y=[int(rule(unique[eid])) for eid in test_ids]
     reports={"deterministic_rule_baseline":score(y_test,rule_y)}
     for name,model in models.items():
-        model.fit(Xt,y_train)
-        probs=model.predict_proba(Xv)[:,1]
+        # HistGradientBoosting requires dense input; other models stay sparse.
+        fit_x, test_x = (Xt.toarray(), Xv.toarray()) if name == "hist_gradient_boosting" else (Xt, Xv)
+        model.fit(fit_x,y_train)
+        probs=model.predict_proba(test_x)[:,1]
         reports[name]=score(y_test,probs)
     report={"gate":"5.3","status":"PASS","experiment":"binary incident detection, held-out scenario families",
             "base_records":len(labels),"raw_records_with_duplicates":len(raw),
