@@ -29,9 +29,6 @@ jobs:
       - name: Install dashboard dependencies
         working-directory: docs/lite/dashboard
         run: npm install
-      - name: Install real Cult UI Halo Button registry component
-        working-directory: docs/lite/dashboard
-        run: npx shadcn@latest add @cult-ui/halo-button --overwrite --yes
       - name: Production build
         working-directory: docs/lite/dashboard
         run: npm run build
