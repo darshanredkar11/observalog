@@ -223,6 +223,30 @@ mod tests {
     }
 
     #[test]
+    fn verified_specialist_precedes_graph_when_it_has_specific_evidence() {
+        let events = vec![
+            json!({"event_id":"db","service":"postgres","offset_ms":30,"tenant":"tenant-a","level":"ERROR","error_code":"40P01"}),
+            json!({"event_id":"orders","service":"orders","offset_ms":34,"tenant":"tenant-a","level":"ERROR","error_code":"DB_DEADLOCK"}),
+        ];
+        let result = analyze(&events);
+        assert_eq!(result.decision_source, "specialist");
+        assert_eq!(result.primary_target.as_deref(), Some("postgres"));
+        assert_eq!(result.primary_target_type.as_deref(), Some("service"));
+        assert!(!result.abstained);
+    }
+
+    #[test]
+    fn unrelated_failures_still_abstain() {
+        let events = vec![
+            json!({"event_id":"e1","service":"identity","offset_ms":10,"tenant":"tenant-a","level":"ERROR","error_code":"AUTH_REJECT"}),
+            json!({"event_id":"e2","service":"payments","offset_ms":11,"tenant":"tenant-a","level":"ERROR","error_code":"PROVIDER_503"}),
+        ];
+        let result = analyze(&events);
+        assert!(result.abstained);
+        assert_eq!(result.primary_target, None);
+    }
+
+    #[test]
     fn graph_fallback_remains_available_when_no_specialist_matches() {
         let events = vec![
             json!({"event_id":"e1","service":"orders","instance":"orders-old","offset_ms":1,"version":"1.0","level":"INFO"}),
