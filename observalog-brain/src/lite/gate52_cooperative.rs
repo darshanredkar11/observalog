@@ -7,7 +7,7 @@
 //! This module is research-only and is not wired into production findings.
 
 use crate::lite::gate52_specialists::{self, Hypothesis};
-use super::graph_diagnosis::{rank, Candidate, DiagnosticEvent, EvidenceEdge};
+use super::graph_diagnosis::{rank, DiagnosticEvent, EvidenceEdge};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
