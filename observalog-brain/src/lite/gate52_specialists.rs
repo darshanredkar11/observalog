@@ -214,7 +214,7 @@ fn median(mut values: Vec<f64>) -> Option<f64> {
 /// GC-pause samples. It requires an explicit OOM endpoint and meaningful positive
 /// movement in both signals; a single high point is not enough.
 pub fn resource_exhaustion(events: &[Value]) -> Option<Hypothesis> {
-    let mut groups: BTreeMap<(String, String), Vec<&Value>> = BTreeMap::new();
+    let mut groups: BTreeMap<(Option<String>, String, String), Vec<&Value>> = BTreeMap::new();
     for event in events {
         let Some(heap) = number_field(event, "heap_used_pct") else { continue; };
         let Some(gc) = number_field(event, "gc_pause_ms") else { continue; };
@@ -223,11 +223,12 @@ pub fn resource_exhaustion(events: &[Value]) -> Option<Hypothesis> {
         };
         if !(0.0..=100.0).contains(&heap) || gc < 0.0 { continue; }
         let _ = (heap, gc);
-        groups.entry((service, instance)).or_default().push(event);
+        let tenant = string_field(event, "tenant_id").or_else(|| string_field(event, "tenant"));
+        groups.entry((tenant, service, instance)).or_default().push(event);
         let _ = ts;
     }
 
-    for ((service_name, instance_name), mut samples) in groups {
+    for ((tenant_scope, service_name, instance_name), mut samples) in groups {
         samples.sort_by_key(|event| timestamp(event).unwrap_or(i64::MIN));
         if samples.len() < 3 { continue; }
         let mut heap_slopes = Vec::new();
@@ -250,6 +251,7 @@ pub fn resource_exhaustion(events: &[Value]) -> Option<Hypothesis> {
         let oom = events.iter().find(|event| {
             service(event).as_deref() == Some(service_name.as_str())
                 && instance(event).as_deref() == Some(instance_name.as_str())
+                && string_field(event, "tenant_id").or_else(|| string_field(event, "tenant")) == tenant_scope
                 && (string_field(event, "error_code").unwrap_or_default().to_ascii_uppercase().contains("OOM")
                     || string_field(event, "message").unwrap_or_default().to_ascii_lowercase().contains("outofmemoryerror"))
         });
@@ -388,6 +390,17 @@ mod tests {
             json!({"event_id":"r2","service":"catalog","instance":"shared-03","offset_ms":10000,"attrs":{"heap_used_pct":74,"gc_pause_ms":15}}),
             json!({"event_id":"r3","service":"catalog","instance":"shared-03","offset_ms":20000,"attrs":{"heap_used_pct":88,"gc_pause_ms":120}}),
             json!({"event_id":"oom","service":"billing","instance":"shared-03","offset_ms":21000,"level":"FATAL","error_code":"JAVA_HEAP_OOM"}),
+        ];
+        assert!(resource_exhaustion(&events).is_none());
+    }
+
+    #[test]
+    fn resource_trend_and_oom_must_belong_to_the_same_tenant() {
+        let events = vec![
+            json!({"event_id":"r1","service":"catalog","instance":"catalog-03","tenant":"tenant-a","offset_ms":0,"attrs":{"heap_used_pct":62,"gc_pause_ms":4}}),
+            json!({"event_id":"r2","service":"catalog","instance":"catalog-03","tenant":"tenant-a","offset_ms":10000,"attrs":{"heap_used_pct":74,"gc_pause_ms":15}}),
+            json!({"event_id":"r3","service":"catalog","instance":"catalog-03","tenant":"tenant-a","offset_ms":20000,"attrs":{"heap_used_pct":88,"gc_pause_ms":120}}),
+            json!({"event_id":"oom","service":"catalog","instance":"catalog-03","tenant":"tenant-b","offset_ms":21000,"level":"FATAL","error_code":"JAVA_HEAP_OOM"}),
         ];
         assert!(resource_exhaustion(&events).is_none());
     }
