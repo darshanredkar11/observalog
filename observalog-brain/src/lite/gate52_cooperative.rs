@@ -149,13 +149,14 @@ pub fn analyze(events: &[Value]) -> CooperativeDiagnosis {
 
     // Do not silently choose between multiple distinct specialist targets.
     if accepted.len() == 1 {
-        let hypothesis = &accepted[0];
+        let target = accepted[0].target.clone();
+        let target_type = accepted[0].target_type.to_owned();
         return CooperativeDiagnosis {
             accepted_specialist_hypotheses: accepted,
             rejected_specialist_hypotheses: rejected,
             graph_fallback_target: None,
-            primary_target: Some(hypothesis.target.clone()),
-            primary_target_type: Some(hypothesis.target_type.to_owned()),
+            primary_target: Some(target),
+            primary_target_type: Some(target_type),
             decision_source: "specialist",
             abstained: false,
         };
