@@ -59,7 +59,7 @@ def main():
    r={"seed":seed,"ablation":ab,"test_at_0_5":stats(yt,ps,.5,hn),"validation_calibrated_threshold":t,"test_at_validation_threshold":stats(yt,ps,t,hn),"prevalence_stress":{}}
    for prevalence in (.5,.1,.01):
     rng=random.Random(seed+int(prevalence*1000));fi=list(faults);hi=list(he);rng.shuffle(fi);rng.shuffle(hi);nh=min(len(hi),int(len(fi)*(1-prevalence)/prevalence));ids=fi+hi[:nh];yy=[1]*len(fi)+[0]*nh
-    probs=[float(m.predict_proba(vec.transform([features(u[x],ab)]))[:,1][0]) for x in ids];pairs=list(zip(yy,probs));rng.shuffle(pairs);sy=[x[0] for x in pairs];sp=[x[1] for x in pairs]
+    probs=[float(ps[test.index(x)]) for x in ids];pairs=list(zip(yy,probs));rng.shuffle(pairs);sy=[x[0] for x in pairs];sp=[x[1] for x in pairs]
     r["prevalence_stress"][str(prevalence)]={"realized_prevalence":sum(sy)/len(sy) if sy else 0,"at_0_5":stats(sy,sp,.5,nh),"at_validation_threshold":stats(sy,sp,t,nh)}
    rows.append(r)
    if a.rust_binary and ab=="full":
