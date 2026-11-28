@@ -1,0 +1,34 @@
+name: Gate 5.2 Specialist Research
+on:
+  pull_request:
+    branches: [lite/chaos-gate-3-5]
+    paths:
+      - observalog-brain/src/lite/gate52_specialists.rs
+      - observalog-brain/src/bin/gate52_specialist_eval.rs
+      - tests/incident_lab/gate52_specialist_evaluation.py
+      - tests/incident_lab/generate.py
+      - .github/workflows/gate52-specialist-experiments.yml
+  workflow_dispatch:
+jobs:
+  specialist-evaluation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build actual Rust specialist runner
+        working-directory: observalog-brain
+        run: cargo build --release --bin gate52_specialist_eval
+      - name: Evaluate 22 scenarios x 3 permutations using Rust predictions
+        run: |
+          python3 tests/incident_lab/gate52_specialist_evaluation.py \
+            --binary observalog-brain/target/release/gate52_specialist_eval \
+            --output gate52-specialist-evaluation.json
+      - name: Upload specialist experiment report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate52-specialist-evaluation
+          path: gate52-specialist-evaluation.json
+          if-no-files-found: error
