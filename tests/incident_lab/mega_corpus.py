@@ -11,6 +11,8 @@ def opaque_id(r, prefix):
  return f"{prefix}-{r.getrandbits(64):016x}"
 
 def event(r,i,c,g,ts,trace_reuse_pool):
+ r=random.Random(r.getrandbits(64))
+ event_id=opaque_id(r,"evt")
  s=r.choice(SERVICES); instance=f"{s}-{r.randint(1,4):02d}"; version=r.choice(["1.8.2","1.8.3","1.9.0"])
  trace=opaque_id(r,"trc"); req=opaque_id(r,"req"); entity=opaque_id(r,"biz"); level="INFO"; outcome="success"; code=None; dur=r.randint(5,200); msg="Operation completed"; attrs={}; tenant=f"tenant-{r.randint(1,12)}"
  if c in ("auth_failure","authorization_denial"): level,outcome,code="ERROR","failure","JWT_INVALID" if c=="auth_failure" else "ACCESS_DENIED"; msg="Authentication or authorization rejected"
@@ -42,7 +44,7 @@ def event(r,i,c,g,ts,trace_reuse_pool):
  elif c=="recovery": msg="Dependency recovered; readiness check passed"
  if r.random()<.03: attrs["noise_marker"]="benign"
  if r.random()<.02: attrs["unknown_field"]="unanticipated"
- return {"event_id":opaque_id(r,"evt"),"timestamp":ts.isoformat(timespec="milliseconds").replace("+00:00","Z"),"service":s,"instance":instance,"version":version,"region":"ap-south-1","tenant":tenant,"format":r.choice(FORMATS),"level":level,"message":msg,"trace_id":trace,"request_id":req,"entity_id":entity,"outcome":outcome,"duration_ms":dur,"error_code":code,"attributes":attrs}
+ return {"event_id":event_id,"timestamp":ts.isoformat(timespec="milliseconds").replace("+00:00","Z"),"service":s,"instance":instance,"version":version,"region":"ap-south-1","tenant":tenant,"format":r.choice(FORMATS),"level":level,"message":msg,"trace_id":trace,"request_id":req,"entity_id":entity,"outcome":outcome,"duration_ms":dur,"error_code":code,"attributes":attrs}
 def main():
  p=argparse.ArgumentParser(); p.add_argument("--count",type=int,default=25000); p.add_argument("--seed",type=int,default=20261126); p.add_argument("--output",default="/tmp/observalog-mega-corpus"); p.add_argument("--duplicate-rate",type=float,default=.04); p.add_argument("--list",action="store_true"); a=p.parse_args()
  if a.count<1 or not 0<=a.duplicate_rate<=1: p.error("count must be positive and duplicate-rate 0..1")
