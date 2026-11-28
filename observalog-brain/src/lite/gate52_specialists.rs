@@ -60,11 +60,26 @@ fn is_failure(event: &Value) -> bool {
 }
 
 fn same_flow(left: &Value, right: &Value) -> bool {
-    let same_trace = string_field(left, "trace_id").zip(string_field(right, "trace_id"))
-        .is_some_and(|(a, b)| !a.is_empty() && a == b);
-    let same_request = string_field(left, "request_id").zip(string_field(right, "request_id"))
-        .is_some_and(|(a, b)| !a.is_empty() && a == b);
-    same_trace || same_request
+    let left_tenant = string_field(left, "tenant_id").or_else(|| string_field(left, "tenant"));
+    let right_tenant = string_field(right, "tenant_id").or_else(|| string_field(right, "tenant"));
+    if left_tenant != right_tenant {
+        return false;
+    }
+
+    let left_trace = string_field(left, "trace_id").filter(|value| !value.is_empty());
+    let right_trace = string_field(right, "trace_id").filter(|value| !value.is_empty());
+    let left_request = string_field(left, "request_id").filter(|value| !value.is_empty());
+    let right_request = string_field(right, "request_id").filter(|value| !value.is_empty());
+
+    if left_trace.is_some() && right_trace.is_some() && left_trace != right_trace {
+        return false;
+    }
+    if left_request.is_some() && right_request.is_some() && left_request != right_request {
+        return false;
+    }
+
+    left_trace.is_some() && left_trace == right_trace
+        || left_request.is_some() && left_request == right_request
 }
 
 /// Conventional signature detector for explicit PostgreSQL deadlock evidence.
@@ -230,7 +245,8 @@ pub fn resource_exhaustion(events: &[Value]) -> Option<Hypothesis> {
         let gc_delta = number_field(samples.last()?, "gc_pause_ms")?
             - number_field(samples.first()?, "gc_pause_ms")?;
         let oom = events.iter().find(|event| {
-            instance(event).as_deref() == Some(instance_name.as_str())
+            service(event).as_deref() == Some(service.as_str())
+                && instance(event).as_deref() == Some(instance_name.as_str())
                 && (string_field(event, "error_code").unwrap_or_default().to_ascii_uppercase().contains("OOM")
                     || string_field(event, "message").unwrap_or_default().to_ascii_lowercase().contains("outofmemoryerror"))
         });
@@ -293,6 +309,18 @@ mod tests {
             json!({"event_id":"symptom","service":"orders","offset_ms":14,"trace_id":"t2","request_id":"r2","level":"WARN","outcome":"failure","error_code":"AUTH_CONTEXT_MISSING"}),
         ];
         assert!(auth_cascade(&unrelated).is_none());
+
+        let conflicting_request = vec![
+            json!({"event_id":"jwt","service":"identity","offset_ms":8,"trace_id":"t1","request_id":"r1","tenant":"tenant-a","level":"ERROR","error_code":"JWT_AUDIENCE_MISMATCH"}),
+            json!({"event_id":"symptom","service":"orders","offset_ms":14,"trace_id":"t1","request_id":"r2","tenant":"tenant-a","level":"WARN","outcome":"failure","error_code":"AUTH_CONTEXT_MISSING"}),
+        ];
+        assert!(auth_cascade(&conflicting_request).is_none());
+
+        let cross_tenant = vec![
+            json!({"event_id":"jwt","service":"identity","offset_ms":8,"trace_id":"t1","request_id":"r1","tenant":"tenant-a","level":"ERROR","error_code":"JWT_AUDIENCE_MISMATCH"}),
+            json!({"event_id":"symptom","service":"orders","offset_ms":14,"trace_id":"t1","request_id":"r1","tenant":"tenant-b","level":"WARN","outcome":"failure","error_code":"AUTH_CONTEXT_MISSING"}),
+        ];
+        assert!(auth_cascade(&cross_tenant).is_none());
     }
 
     #[test]
@@ -337,6 +365,17 @@ mod tests {
         assert!(h.evidence_ids.contains(&"oom".to_owned()));
         let without_oom = events[..5].to_vec();
         assert!(resource_exhaustion(&without_oom).is_none());
+    }
+
+    #[test]
+    fn oom_from_another_service_cannot_close_resource_hypothesis() {
+        let events = vec![
+            json!({"event_id":"r1","service":"catalog","instance":"shared-03","offset_ms":0,"attrs":{"heap_used_pct":62,"gc_pause_ms":4}}),
+            json!({"event_id":"r2","service":"catalog","instance":"shared-03","offset_ms":10000,"attrs":{"heap_used_pct":74,"gc_pause_ms":15}}),
+            json!({"event_id":"r3","service":"catalog","instance":"shared-03","offset_ms":20000,"attrs":{"heap_used_pct":88,"gc_pause_ms":120}}),
+            json!({"event_id":"oom","service":"billing","instance":"shared-03","offset_ms":21000,"level":"FATAL","error_code":"JAVA_HEAP_OOM"}),
+        ];
+        assert!(resource_exhaustion(&events).is_none());
     }
 
     #[test]
