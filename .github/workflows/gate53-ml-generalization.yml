@@ -2,18 +2,8 @@ name: Gate 5.3 ML Generalization Experiment
 on:
   push:
     branches: [research/gate53-ml-generalization]
-    paths:
-      - tests/incident_lab/gate53_ml_generalization.py
-      - tests/incident_lab/mega_corpus.py
-      - tests/incident_lab/mega_corpus_leakage_audit.py
-      - .github/workflows/gate53-ml-generalization.yml
   pull_request:
     branches: [research/gate53-ml-generalization]
-    paths:
-      - tests/incident_lab/gate53_ml_generalization.py
-      - tests/incident_lab/mega_corpus.py
-      - tests/incident_lab/mega_corpus_leakage_audit.py
-      - .github/workflows/gate53-ml-generalization.yml
   workflow_dispatch:
 jobs:
   ml-generalization:
