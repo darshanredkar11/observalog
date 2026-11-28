@@ -37,6 +37,8 @@ pub struct Candidate {
     pub downstream_failure_links: usize,
     pub contrast_evidence: usize,
     pub healthy_peer_events: usize,
+    /// Exact replica when a single failed instance contrasts with healthy peers.
+    pub isolated_instance: Option<String>,
     pub reasons: Vec<String>,
 }
 
@@ -44,6 +46,8 @@ pub struct Candidate {
 pub struct Diagnosis {
     pub abstained: bool,
     pub likely_initiator: Option<String>,
+    /// More specific replica target when a unique failed instance is isolated.
+    pub likely_instance: Option<String>,
     pub candidates: Vec<Candidate>,
     pub note: &'static str,
 }
@@ -61,7 +65,7 @@ pub fn rank(events: &[DiagnosticEvent], edges: &[EvidenceEdge]) -> Diagnosis {
         let candidate = scores.entry(event.service.clone()).or_insert(Candidate {
             service: event.service.clone(), score: 0.0, direct_failures: 0,
             upstream_failure_links: 0, downstream_failure_links: 0,
-            contrast_evidence: 0, healthy_peer_events: 0, reasons: Vec::new(),
+            contrast_evidence: 0, healthy_peer_events: 0, isolated_instance: None, reasons: Vec::new(),
         });
         if event.is_failure {
             candidate.direct_failures += 1;
@@ -124,9 +128,27 @@ pub fn rank(events: &[DiagnosticEvent], edges: &[EvidenceEdge]) -> Diagnosis {
         let version_contrast = failed_versions.get(&candidate.service).is_some_and(|failed|
             healthy_versions.get(&candidate.service).is_some_and(|healthy|
                 failed.iter().any(|fv| healthy.iter().any(|hv| fv != hv))));
-        let instance_contrast = failed_instances.iter().any(|((service, version), failed)|
-            service == &candidate.service && healthy_instances.get(&(service.clone(), version.clone()))
-                .is_some_and(|healthy| failed.iter().any(|fi| healthy.iter().any(|hi| fi != hi))));
+        let mut isolated_instances = std::collections::BTreeSet::new();
+        let instance_contrast = failed_instances.iter().any(|((service, version), failed)| {
+            if service != &candidate.service {
+                return false;
+            }
+            let Some(healthy) = healthy_instances.get(&(service.clone(), version.clone())) else {
+                return false;
+            };
+            let has_contrast = failed.iter().any(|fi| healthy.iter().any(|hi| fi != hi));
+            if has_contrast && failed.len() == 1 {
+                if let Some(instance) = failed.iter().next() {
+                    isolated_instances.insert(instance.clone());
+                }
+            }
+            has_contrast
+        });
+        candidate.isolated_instance = if isolated_instances.len() == 1 {
+            isolated_instances.into_iter().next()
+        } else {
+            None
+        };
         if version_contrast || instance_contrast {
             candidate.contrast_evidence += 1;
             candidate.score += 1.5;
@@ -135,6 +157,11 @@ pub fn rank(events: &[DiagnosticEvent], edges: &[EvidenceEdge]) -> Diagnosis {
             } else {
                 "failure isolated to replica with healthy same-version peers".into()
             });
+            if let Some(instance) = candidate.isolated_instance.as_ref() {
+                candidate.reasons.push(format!(
+                    "single failing instance {instance} contrasts with healthy same-version peers"
+                ));
+            }
         }
     }
 
@@ -164,9 +191,14 @@ pub fn rank(events: &[DiagnosticEvent], edges: &[EvidenceEdge]) -> Diagnosis {
         None
     };
     let abstained = winner.is_none();
+    let likely_instance = winner.as_ref().and_then(|service| {
+        candidates.iter().find(|candidate| &candidate.service == service)
+            .and_then(|candidate| candidate.isolated_instance.clone())
+    });
     Diagnosis {
         abstained,
         likely_initiator: winner,
+        likely_instance,
         candidates,
         note: if ambiguous_top {
             "Top candidates are tied; abstain instead of choosing by lexical order."
@@ -207,6 +239,39 @@ mod tests {
         assert!(d.abstained);
         assert_eq!(d.likely_initiator, None);
         assert_eq!(d.candidates[0].score, d.candidates[1].score);
+    }
+
+    #[test]
+    fn replica_contrast_resolves_a_unique_failed_instance() {
+        let events = vec![
+            DiagnosticEvent { id: 1, service: "identity".into(), instance: Some("identity-01".into()), timestamp_ms: 1,
+                is_failure: false, error_code: None, dependency: None, version: Some("2.2.1".into()) },
+            DiagnosticEvent { id: 2, service: "identity".into(), instance: Some("identity-02".into()), timestamp_ms: 2,
+                is_failure: false, error_code: None, dependency: None, version: Some("2.2.1".into()) },
+            DiagnosticEvent { id: 3, service: "identity".into(), instance: Some("identity-03".into()), timestamp_ms: 3,
+                is_failure: true, error_code: Some("JWT_ISSUER_MISMATCH".into()), dependency: None, version: Some("2.2.1".into()) },
+        ];
+        let d = rank(&events, &[]);
+        assert_eq!(d.likely_initiator.as_deref(), Some("identity"));
+        assert_eq!(d.likely_instance.as_deref(), Some("identity-03"));
+        assert!(!d.abstained);
+    }
+
+    #[test]
+    fn multiple_failed_replicas_do_not_get_arbitrarily_reduced_to_one_instance() {
+        let events = vec![
+            DiagnosticEvent { id: 1, service: "identity".into(), instance: Some("identity-01".into()), timestamp_ms: 1,
+                is_failure: false, error_code: None, dependency: None, version: Some("2.2.1".into()) },
+            DiagnosticEvent { id: 2, service: "identity".into(), instance: Some("identity-02".into()), timestamp_ms: 2,
+                is_failure: false, error_code: None, dependency: None, version: Some("2.2.1".into()) },
+            DiagnosticEvent { id: 3, service: "identity".into(), instance: Some("identity-03".into()), timestamp_ms: 3,
+                is_failure: true, error_code: Some("JWT_ISSUER_MISMATCH".into()), dependency: None, version: Some("2.2.1".into()) },
+            DiagnosticEvent { id: 4, service: "identity".into(), instance: Some("identity-04".into()), timestamp_ms: 4,
+                is_failure: true, error_code: Some("JWT_ISSUER_MISMATCH".into()), dependency: None, version: Some("2.2.1".into()) },
+        ];
+        let d = rank(&events, &[]);
+        assert_eq!(d.likely_initiator.as_deref(), Some("identity"));
+        assert_eq!(d.likely_instance, None);
     }
 
     #[test]
