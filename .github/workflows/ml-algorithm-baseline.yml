@@ -6,6 +6,13 @@ on:
     paths:
       - 'tests/incident_lab/**'
       - '.github/workflows/ml-algorithm-baseline.yml'
+  pull_request:
+    branches: [lite/chaos-gate-3-5]
+    paths:
+      - 'tests/incident_lab/mega_corpus.py'
+      - 'tests/incident_lab/mega_corpus_leakage_audit.py'
+      - 'tests/incident_lab/deterministic_baseline.py'
+      - '.github/workflows/ml-algorithm-baseline.yml'
   workflow_dispatch:
 jobs:
   deterministic-baseline:
@@ -15,6 +22,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Audit synthetic corpus for scenario and identifier leakage
+        run: python3 tests/incident_lab/mega_corpus_leakage_audit.py --count 6200 --seed 20261127 --output /tmp/observalog-baseline/leakage-audit.json
       - name: Generate seeded evaluation corpus
         run: python3 tests/incident_lab/mega_corpus.py --count 25000 --seed 20261127 --duplicate-rate 0.04 --output /tmp/observalog-baseline
       - name: Evaluate deterministic baseline (raw only during scoring)
