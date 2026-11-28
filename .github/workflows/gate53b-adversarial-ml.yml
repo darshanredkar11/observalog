@@ -8,7 +8,7 @@ on:
       - observalog-brain/src/bin/gate52_graph_eval.rs
       - .github/workflows/gate53b-adversarial-ml.yml
   pull_request:
-    branches: [research/gate53b-adversarial-ml]
+    branches: [lite/chaos-gate-3-5]
   workflow_dispatch:
 jobs:
   adversarial-ml:
