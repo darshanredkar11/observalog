@@ -102,7 +102,7 @@ def main():
     # Existing rule baseline, reproduced only as a binary event detector for comparison.
     def rule(e):
         a=e.get("attributes") or {}
-        lvl=str(e.get("level") or "").upper(); outcome=str(e.get("outcome") or "").lower(); code=e.get("error_code")
+        lvl=str(e.get("level",e.get("severity",""))).upper(); outcome=str(e.get("outcome") or "").lower(); code=e.get("error_code")
         dur=e.get("duration_ms"); retry=a.get("retry_count"); q=a.get("queue_depth"); cpu=a.get("cpu_pct"); heap=a.get("heap_pct")
         msg=str(e.get("message") or "").lower()
         return bool(lvl in {"ERROR","FATAL","CRITICAL"} or outcome in {"failure","failed","error"} or code
