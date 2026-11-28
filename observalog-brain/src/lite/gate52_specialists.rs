@@ -5,10 +5,11 @@
 //! Each is intentionally narrower than a general RCA model and is tested against
 //! positive and negative incident fixtures before any integration is considered.
 
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Hypothesis {
     pub specialist: &'static str,
     pub target_type: &'static str,
