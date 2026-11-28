@@ -10,7 +10,7 @@ BASE=datetime(2026,11,25,12,0,tzinfo=timezone.utc)
 def opaque_id(r, prefix):
  return f"{prefix}-{r.getrandbits(64):016x}"
 
-def event(r,i,c,g,ts,trace_reuse_pool):
+def event(r,c,ts,trace_reuse_pool):
  r=random.Random(r.getrandbits(64))
  event_id=opaque_id(r,"evt")
  s=r.choice(SERVICES); instance=f"{s}-{r.randint(1,4):02d}"; version=r.choice(["1.8.2","1.8.3","1.9.0"])
@@ -55,7 +55,7 @@ def main():
  for group in range((a.count + len(CASES) - 1)//len(CASES)):
   group_cases=list(CASES); r.shuffle(group_cases); case_order.extend(group_cases)
  for i in range(a.count):
-  c=case_order[i]; g=i//len(CASES); ts=BASE+timedelta(milliseconds=i*17+r.randint(-500,500)); e=event(r,i,c,g,ts,trace_reuse_pool); rows.append(e); labels.append({"event_id":e["event_id"],"scenario":c,"group":g,"expected_class":c})
+  c=case_order[i]; g=i//len(CASES); ts=BASE+timedelta(milliseconds=i*17+r.randint(-500,500)); e=event(r,c,ts,trace_reuse_pool); rows.append(e); labels.append({"event_id":e["event_id"],"scenario":c,"group":g,"expected_class":c})
  n=int(a.count*a.duplicate_rate)
  for e in r.sample(rows,n): rows.append(dict(e))
  r.shuffle(rows)
