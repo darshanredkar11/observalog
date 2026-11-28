@@ -108,3 +108,37 @@ Healthy scenarios must be reported separately. Do not aggregate event rows into 
 ## Limitations/non-goals
 
 No production activation, auto-remediation, causal certainty, assumed access to external metrics/tracing backends, or heavy model until corpus validity and simpler baselines are established.
+
+## Research results — 2026-11-28 (research branch only)
+
+The first cooperative implementation was evaluated by the compiled Rust `gate52_cooperative_eval` binary across all 22 incident-lab scenarios and 3 seeded permutations (66 streams). Python generated/mutated inputs and scored returned predictions only; it did not duplicate the diagnostic algorithm.
+
+| Metric | Result |
+|---|---:|
+| Service-localizable streams | 18 / 66 |
+| Accepted diagnoses / coverage | 18 / 66 (27.27%) |
+| Service-level Top-1 on localizable streams | 18 / 18 (100%) |
+| Exact target Top-1 on localizable streams | 15 / 18 (83.33%) |
+| Target-granularity gaps | 3 |
+| Specialist decisions | 12 |
+| Graph-fallback decisions | 6 |
+| Abstentions | 48 |
+| False attributions on non-localizable streams | 0 |
+| Confidently wrong service localizations | 0 |
+| Missing evidence IDs | 0 |
+
+The three granularity gaps are all the `replica-config-drift` case: graph fallback identifies service `identity`, while evaluator ground truth names instance `identity-03`. This is a service-localization success but not an instance-level diagnosis. It must not be reported as exact-target accuracy.
+
+The four narrow conventional specialists (authentication cascade, PostgreSQL deadlock signature, duplicate-message/idempotency invariant, and robust resource trend + OOM endpoint) each achieved 3/3 expected detections, 0 false positives across the other 18 scenario families, and 0 missing evidence IDs on this corpus. This is targeted synthetic fixture coverage, not representative statistical precision/recall.
+
+The Rust-backed Gate 5.2-B evaluator remains separately reported. Cooperative results do not replace that baseline; they measure the combination of specialist hypotheses, deterministic evidence verification, and conservative graph fallback.
+
+### Interpretation and limitations
+
+- This result demonstrates that narrow evidence-specific algorithms can repair several known failure modes without an LLM or trained model.
+- It does not validate production collector parsing, durable correlation queries, runtime graph edge construction, or persisted finding quality.
+- The 25K mega-corpus is event-level, not multi-event sequence data; it is not suitable for DeepLog/LogBERT sequence training in its current form.
+- The graph fallback still needs instance-level target resolution for replica drift and a richer typed evidence model for other unhandled families.
+- No learned model has been trained or enabled. The cooperative module remains research-only and is not wired into production reasoning/findings.
+
+CI: [Gate 5.2-E Cooperative Diagnosis Research](https://github.com/darshanredkar11/observalog/actions/runs/46129681583)
