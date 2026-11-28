@@ -149,7 +149,7 @@ def main():
             results.append(run_case(name, factory, permutation, args.binary))
 
     local = [row for row in results if row["localizable"]]
-    nonlocal = [row for row in results if not row["localizable"]]
+    nonlocal_rows = [row for row in results if not row["localizable"]]
     count = len(results)
     correct = sum(row["diagnosis_top1_correct"] for row in local)
     coverage = sum(not row["abstained"] for row in results) / count if count else 0.0
@@ -159,7 +159,13 @@ def main():
 
     report = {
         "gate": "5.2-E cooperative specialists + graph fallback",
-        "status": "PASS" if count == len(generator.CASES) * PERMUTATIONS and evidence_failures == 0 else "FAIL",
+        "status": "PASS" if (
+            count == len(generator.CASES) * PERMUTATIONS
+            and evidence_failures == 0
+            and correct == len(local)
+            and false_attributions == 0
+            and confidently_wrong == 0
+        ) else "FAIL",
         "execution": "actual Rust gate52_cooperative_eval; Python only generates/mutates fixtures and scores results",
         "seed": SEED,
         "scenario_count": len(generator.CASES),
@@ -170,7 +176,7 @@ def main():
         "coverage": coverage,
         "diagnosis_top1_accuracy_on_localizable": correct / len(local) if local else None,
         "false_attributions_nonlocalizable": false_attributions,
-        "false_attribution_rate_nonlocalizable": false_attributions / len(nonlocal) if nonlocal else 0.0,
+        "false_attribution_rate_nonlocalizable": false_attributions / len(nonlocal_rows) if nonlocal_rows else 0.0,
         "confidently_wrong_localizable": confidently_wrong,
         "confidently_wrong_rate_localizable": confidently_wrong / len(local) if local else None,
         "evidence_id_failures": evidence_failures,
