@@ -3,6 +3,8 @@ on:
   push:
     branches: [lite/chaos-gate-3-5]
     paths:
+      - observalog-brain/src/lite/graph_diagnosis.rs
+      - observalog-brain/src/bin/gate52_graph_eval.rs
       - tests/incident_lab/gate52_b_evaluator.py
       - tests/incident_lab/generate.py
       - .github/workflows/gate52-b-corpus-evaluation.yml
@@ -14,13 +16,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Compile evaluator and generator
         run: python -m py_compile tests/incident_lab/gate52_b_evaluator.py tests/incident_lab/generate.py
-      - name: Evaluate 22 scenarios across randomized permutations
-        run: python tests/incident_lab/gate52_b_evaluator.py --output gate52-b-evaluation.json
+      - name: Build actual Rust graph ranker
+        working-directory: observalog-brain
+        run: cargo build --release --bin gate52_graph_eval
+      - name: Evaluate 22 scenarios across randomized permutations using Rust predictions
+        run: |
+          python tests/incident_lab/gate52_b_evaluator.py \
+            --binary observalog-brain/target/release/gate52_graph_eval \
+            --output gate52-b-evaluation.json
       - name: Upload evaluation report
         uses: actions/upload-artifact@v4
         with:
