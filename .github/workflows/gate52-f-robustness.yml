@@ -1,0 +1,35 @@
+name: Gate 5.2-F Robustness
+on:
+  push:
+    branches: [research/gate52-specialists]
+    paths:
+      - observalog-brain/src/lite/gate52_cooperative.rs
+      - observalog-brain/src/lite/gate52_specialists.rs
+      - observalog-brain/src/bin/gate52_cooperative_eval.rs
+      - tests/incident_lab/gate52_f_robustness.py
+      - tests/incident_lab/generate.py
+      - .github/workflows/gate52-f-robustness.yml
+  workflow_dispatch:
+jobs:
+  robustness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build Rust cooperative evaluator
+        working-directory: observalog-brain
+        run: cargo build --release --bin gate52_cooperative_eval
+      - name: Evaluate clean, moderate, and heavy mutation profiles
+        run: |
+          python3 tests/incident_lab/gate52_f_robustness.py \
+            --binary observalog-brain/target/release/gate52_cooperative_eval \
+            --output gate52-f-robustness.json
+      - name: Upload robustness report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate52-f-robustness
+          path: gate52-f-robustness.json
+          if-no-files-found: error
