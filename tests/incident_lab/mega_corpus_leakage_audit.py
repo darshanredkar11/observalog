@@ -169,7 +169,9 @@ def main():
             "Any ML feature pipeline must exclude event IDs, raw timestamp sequence index, and ground-truth metadata from model features.",
         ],
     }
-    Path(args.output).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2))
     if failed:
         raise SystemExit(1)
