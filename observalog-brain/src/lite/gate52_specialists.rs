@@ -135,16 +135,19 @@ pub fn auth_cascade(events: &[Value]) -> Option<Hypothesis> {
 /// effects without an idempotency key. Target is the consumer, not the downstream
 /// service that happens to emit the duplicate-side-effect error.
 pub fn duplicate_delivery(events: &[Value]) -> Option<Hypothesis> {
-    let mut by_message: BTreeMap<String, Vec<&Value>> = BTreeMap::new();
+    let mut by_message: BTreeMap<(String, String), Vec<&Value>> = BTreeMap::new();
     for event in events {
         if let Some(message_id) = string_field(event, "message_id") {
             if !message_id.is_empty() {
-                by_message.entry(message_id).or_default().push(event);
+                let tenant = string_field(event, "tenant_id")
+                    .or_else(|| string_field(event, "tenant"))
+                    .unwrap_or_default();
+                by_message.entry((tenant, message_id)).or_default().push(event);
             }
         }
     }
 
-    for (message_id, records) in by_message {
+    for ((_tenant, message_id), records) in by_message {
         let mut consumers: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut effects = BTreeSet::new();
         let mut has_missing_idempotency = false;
@@ -345,6 +348,17 @@ mod tests {
             json!({"event_id":"d2","service":"stock-consumer","message_id":"m1","delivery_attempt":2}),
             json!({"event_id":"s1","service":"stock","message_id":"m1","reservation_id":"res1","idempotency_key":"idem-1"}),
             json!({"event_id":"s2","service":"stock","message_id":"m1","reservation_id":"res1","idempotency_key":"idem-1"}),
+        ];
+        assert!(duplicate_delivery(&events).is_none());
+    }
+
+    #[test]
+    fn duplicate_message_ids_are_never_combined_across_tenants() {
+        let events = vec![
+            json!({"event_id":"d1","tenant":"tenant-a","service":"consumer-a","message_id":"same-id","delivery_attempt":1}),
+            json!({"event_id":"s1","tenant":"tenant-a","service":"stock-a","message_id":"same-id","reservation_id":"res-a","idempotency_key":null}),
+            json!({"event_id":"d2","tenant":"tenant-b","service":"consumer-b","message_id":"same-id","delivery_attempt":1}),
+            json!({"event_id":"s2","tenant":"tenant-b","service":"stock-b","message_id":"same-id","reservation_id":"res-b","idempotency_key":null}),
         ];
         assert!(duplicate_delivery(&events).is_none());
     }
