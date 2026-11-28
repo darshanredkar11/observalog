@@ -93,7 +93,15 @@ def main():
         serialized = json.dumps(event, sort_keys=True, ensure_ascii=False).lower()
         direct_tokens = [token for token in scenario_tokens if token in serialized]
         if direct_tokens:
-            raw_label_tokens.append({"record": index, "scenario_tokens": direct_tokens})
+            matching_values = [
+                value for value in strings(event)
+                if any(token in value.lower() for token in direct_tokens)
+            ]
+            raw_label_tokens.append({
+                "record": index,
+                "scenario_tokens": direct_tokens,
+                "matching_values": matching_values[:10],
+            })
 
         message = str(event.get("message") or "").lower()
         direct_message_tokens = [token for token in scenario_tokens if token in message]
