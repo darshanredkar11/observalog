@@ -1,0 +1,38 @@
+name: Gate 5.2-E Cooperative Diagnosis Research
+on:
+  pull_request:
+    branches: [lite/chaos-gate-3-5]
+    paths:
+      - observalog-brain/src/lite/gate52_cooperative.rs
+      - observalog-brain/src/lite/gate52_specialists.rs
+      - observalog-brain/src/lite/graph_diagnosis.rs
+      - observalog-brain/src/bin/gate52_cooperative_eval.rs
+      - tests/incident_lab/gate52_cooperative_evaluation.py
+      - tests/incident_lab/generate.py
+      - .github/workflows/gate52-cooperative-evaluation.yml
+  workflow_dispatch:
+jobs:
+  cooperative-evaluation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile cooperative evaluator and corpus generator
+        run: python3 -m py_compile tests/incident_lab/gate52_cooperative_evaluation.py tests/incident_lab/generate.py
+      - name: Build cooperative Rust evaluator
+        working-directory: observalog-brain
+        run: cargo build --release --bin gate52_cooperative_eval
+      - name: Evaluate full 22-scenario corpus through Rust cooperative pipeline
+        run: |
+          python3 tests/incident_lab/gate52_cooperative_evaluation.py \
+            --binary observalog-brain/target/release/gate52_cooperative_eval \
+            --output gate52-cooperative-evaluation.json
+      - name: Upload cooperative evaluation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate52-cooperative-evaluation
+          path: gate52-cooperative-evaluation.json
+          if-no-files-found: error
